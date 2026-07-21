@@ -6,6 +6,7 @@ open Domain
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "CyclomaticComplexity")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "NPathComplexity")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveMethodLength")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveClassComplexity")>]
 module Cli =
     let usage =
         """messfsharp - an idiomatic F# mess detector
@@ -125,6 +126,8 @@ Options:
                             | None when index + 1 >= argv.Length -> Error(sprintf "%s requires a value." optionName)
                             | None when argv[index + 1].StartsWith("-", StringComparison.Ordinal) ->
                                 Error(sprintf "%s requires a value." optionName)
+                            | None when String.IsNullOrWhiteSpace argv[index + 1] ->
+                                Error(sprintf "%s requires a value." optionName)
                             | None -> Ok(argv[index + 1], index + 2)
 
                         let continueWith nextOptions nextIndex = loop nextIndex positional nextOptions
@@ -162,10 +165,15 @@ Options:
                             match valueForOption () with
                             | Error message -> Invalid message
                             | Ok(value, nextIndex) ->
-                                continueWith
-                                    { options with
-                                        Excludes = splitValues value }
-                                    nextIndex
+                                let excludes = splitValues value
+
+                                if List.isEmpty excludes then
+                                    Invalid "--exclude requires at least one path substring."
+                                else
+                                    continueWith
+                                        { options with
+                                            Excludes = options.Excludes @ excludes }
+                                        nextIndex
                         | "--enable"
                         | "--only" ->
                             match valueForOption () with
@@ -173,7 +181,9 @@ Options:
                             | Ok(value, nextIndex) ->
                                 let selected = splitValues value
 
-                                if optionName = "--enable" then
+                                if List.isEmpty selected then
+                                    Invalid(sprintf "%s requires at least one rule." optionName)
+                                elif optionName = "--enable" then
                                     continueWith
                                         { options with
                                             Enable = options.Enable @ selected }
@@ -187,10 +197,15 @@ Options:
                             match valueForOption () with
                             | Error message -> Invalid message
                             | Ok(value, nextIndex) ->
-                                continueWith
-                                    { options with
-                                        Disable = options.Disable @ splitValues value }
-                                    nextIndex
+                                let disabled = splitValues value
+
+                                if List.isEmpty disabled then
+                                    Invalid "--disable requires at least one rule."
+                                else
+                                    continueWith
+                                        { options with
+                                            Disable = options.Disable @ disabled }
+                                        nextIndex
                         | "--ignore-tests" -> continueWith { options with IgnoreTests = true } (index + 1)
                         | "--strict" -> continueWith { options with Strict = true } (index + 1)
                         | "--color" -> continueWith { options with Color = true } (index + 1)

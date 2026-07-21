@@ -85,11 +85,7 @@ module Discovery =
 
             if File.Exists(normalized) then
                 if hasSuffix options.Suffixes normalized then
-                    if
-                        not (options.IgnoreTests && isIgnoredTestPath normalized)
-                        && not (isExcluded options.Excludes normalized)
-                    then
-                        addFile normalized
+                    addFile normalized
                 else
                     addError normalized (sprintf "Path does not match any configured source suffix: %s" normalized)
             elif Directory.Exists(normalized) then
@@ -99,8 +95,8 @@ module Discovery =
 
         let sortedFiles =
             files
-            |> Seq.distinctBy (fun path -> path.ToUpperInvariant())
             |> Seq.sortWith (fun left right -> StringComparer.Ordinal.Compare(left, right))
+            |> Seq.distinctBy (fun path -> path.ToUpperInvariant())
             |> Seq.toList
 
         sortedFiles, errors |> Seq.toList

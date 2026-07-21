@@ -8,7 +8,7 @@ open MessFSharp.Domain
 
 module AnalyzerTests =
     let private fixture name =
-        Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "Fixtures", name))
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Fixtures", name))
 
     let private options paths rulesets format =
         { Defaults.analysisOptions with
@@ -152,6 +152,18 @@ module AnalyzerTests =
         )
 
     [<Fact>]
+    let ``npath multiplies independent match alternatives`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "multiple-matches.fs" ] [ fixture "npath-ruleset.xml" ] Json)
+
+        Assert.Contains(
+            result.Report.Violations,
+            fun violation ->
+                violation.RuleName = "NPathComplexity"
+                && violation.Description.Contains("NPath complexity 6", StringComparison.Ordinal)
+        )
+
+    [<Fact>]
     let ``variable casing checks functions as well as values`` () =
         let result =
             Engine.run "0.1.0" (options [ fixture "bad.fs" ] [ "controversial" ] Json)
@@ -161,4 +173,154 @@ module AnalyzerTests =
             fun violation ->
                 violation.RuleName = "CamelCaseVariableName"
                 && violation.Description.Contains("BadFunction", StringComparison.Ordinal)
+        )
+
+    [<Fact>]
+    let ``multiline rules and variable property overrides retain actionable findings`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "edge-cases.fs" ] [ fixture "edge-ruleset.xml" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let hasRuleAtLine rule line =
+            result.Report.Violations
+            |> List.exists (fun violation -> violation.RuleName = rule && violation.Location.StartLine = line)
+
+        Assert.True(hasRuleAtLine "BooleanArgumentFlag" 5)
+        Assert.True(hasRuleAtLine "ElseExpression" 26)
+        Assert.True(hasRuleAtLine "ExcessiveParameterList" 5)
+        Assert.True(hasRuleAtLine "CountInLoopExpression" 9)
+        Assert.True(hasRuleAtLine "DuplicatedArrayKey" 13)
+        Assert.True(hasRuleAtLine "EmptyCatchBlock" 20)
+
+        Assert.Equal(
+            2,
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = "DuplicatedArrayKey")
+            |> List.length
+        )
+
+        Assert.Contains(
+            result.Report.Violations,
+            fun violation ->
+                violation.RuleName = "LongVariable"
+                && violation.Description.Contains("ordinaryLongNameThatShouldBeReported", StringComparison.Ordinal)
+        )
+
+        Assert.DoesNotContain(
+            result.Report.Violations,
+            fun violation ->
+                violation.RuleName = "LongVariable"
+                && (violation.Description.Contains("prefixLongName", StringComparison.Ordinal)
+                    || violation.Description.Contains("veryLongSuffix", StringComparison.Ordinal)
+                    || violation.Description.Contains("exemptLongName", StringComparison.Ordinal))
+        )
+
+        Assert.DoesNotContain(
+            result.Report.Violations,
+            fun violation ->
+                violation.RuleName = "ShortVariable"
+                && violation.Description.Contains("'n'", StringComparison.Ordinal)
+        )
+
+        Assert.Single(
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = "StaticAccess")
+        )
+
+    [<Fact>]
+    let ``nested custom ruleset exclusions are inherited`` () =
+        let loaded =
+            match Rulesets.load [ fixture "nested-ruleset.xml" ] with
+            | Ok value -> value
+            | Error errors -> failwith (String.concat "; " errors)
+
+        let names = loaded.Selections |> List.map (fun selection -> selection.Name)
+        Assert.DoesNotContain("ShortClassName", names)
+        Assert.DoesNotContain("LongClassName", names)
+        Assert.Contains("LongVariable", names)
+
+    [<Fact>]
+    let ``access modified types and multiline parameter roles are modeled`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "edge-cases.fs" ] [ "controversial" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        Assert.Contains(
+            result.Report.Violations,
+            fun violation ->
+                violation.RuleName = "CamelCaseClassName"
+                && violation.Description.Contains("privateThing", StringComparison.Ordinal)
+        )
+
+    [<Fact>]
+    let ``strict mode restores declaration suppressions`` () =
+        let normal =
+            Engine.run "0.1.0" (options [ fixture "suppressed.fs" ] [ "design" ] Json)
+
+        let strict =
+            Engine.run
+                "0.1.0"
+                { options [ fixture "suppressed.fs" ] [ "design" ] Json with
+                    Strict = true }
+
+        Assert.Empty(normal.Report.Errors)
+        Assert.Empty(normal.Report.Violations)
+        Assert.Contains(strict.Report.Violations, fun violation -> violation.RuleName = "GlobalVariable")
+
+    [<Fact>]
+    let ``pattern and generic parameter syntax stays out of naming findings`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "pattern-parameters.fs" ] [ "controversial" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+        Assert.Empty(result.Report.Violations)
+
+    [<Fact>]
+    let ``unused formal parameters respect shadowed lexical bindings`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "shadowed-bindings.fs" ] [ "unusedcode" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        Assert.Contains(
+            result.Report.Violations,
+            fun violation ->
+                violation.RuleName = "UnusedFormalParameter"
+                && violation.Location.StartLine = 3
+                && violation.Description.Contains("'value'", StringComparison.Ordinal)
+        )
+
+        Assert.DoesNotContain(
+            result.Report.Violations,
+            fun violation -> violation.RuleName = "UnusedFormalParameter" && violation.Location.StartLine = 4
+        )
+
+    [<Fact>]
+    let ``primary constructors contribute their parameter groups`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "constructor.fs" ] [ fixture "constructor-ruleset.xml" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        Assert.Contains(
+            result.Report.Violations,
+            fun violation ->
+                violation.RuleName = "ExcessiveParameterList"
+                && violation.Description.Contains("Parameter count 2", StringComparison.Ordinal)
+        )
+
+    [<Fact>]
+    let ``exit expressions are token based rather than text based`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "exit-cases.fs" ] [ fixture "exit-ruleset.xml" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        Assert.Equal(
+            2,
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = "ExitExpression")
+            |> List.length
         )

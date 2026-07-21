@@ -42,18 +42,74 @@ module Engine =
             match Rules.byName |> Map.tryFind (selection.Name.ToLowerInvariant()) with
             | Some implementation -> implementation.Check file selection
             | None -> [])
-        |> List.distinctBy (fun violation ->
-            violation.Location.File,
-            violation.Location.StartLine,
-            violation.Location.StartColumn,
-            violation.RuleName,
-            violation.Description)
+
+    let private violationKey (violation: Violation) =
+        violation.Location.File,
+        violation.Location.StartLine,
+        violation.Location.StartColumn,
+        violation.RuleName,
+        violation.Description
+
+    let private distinctViolations violations = List.distinctBy violationKey violations
 
     let private applySuppression strict file violations =
         if strict then
             violations
         else
             violations |> List.filter (isSuppressed file >> not)
+
+    let private sortViolations violations =
+        violations
+        |> List.sortWith (fun left right ->
+            let fileComparison =
+                StringComparer.Ordinal.Compare(left.Location.File, right.Location.File)
+
+            if fileComparison <> 0 then
+                fileComparison
+            else
+                let startLineComparison = compare left.Location.StartLine right.Location.StartLine
+
+                if startLineComparison <> 0 then
+                    startLineComparison
+                else
+                    let endLineComparison = compare left.Location.EndLine right.Location.EndLine
+
+                    if endLineComparison <> 0 then
+                        endLineComparison
+                    else
+                        let ruleComparison = StringComparer.Ordinal.Compare(left.RuleName, right.RuleName)
+
+                        if ruleComparison <> 0 then
+                            ruleComparison
+                        else
+                            StringComparer.Ordinal.Compare(left.Description, right.Description))
+
+    let private sortErrors errors =
+        errors
+        |> List.sortWith (fun left right ->
+            let leftFile = left.File |> Option.defaultValue ""
+            let rightFile = right.File |> Option.defaultValue ""
+            let fileComparison = StringComparer.Ordinal.Compare(leftFile, rightFile)
+
+            if fileComparison <> 0 then
+                fileComparison
+            else
+                let leftLine =
+                    left.Location
+                    |> Option.map (fun location -> location.StartLine)
+                    |> Option.defaultValue 0
+
+                let rightLine =
+                    right.Location
+                    |> Option.map (fun location -> location.StartLine)
+                    |> Option.defaultValue 0
+
+                let lineComparison = compare leftLine rightLine
+
+                if lineComparison <> 0 then
+                    lineComparison
+                else
+                    StringComparer.Ordinal.Compare(left.Message, right.Message))
 
     let private calculateExitCode options report =
         let hasErrors = not (List.isEmpty report.Errors)
@@ -114,22 +170,17 @@ module Engine =
                 let violations = ResizeArray<Violation>()
 
                 for file in analyzedFiles do
-                    for violation in runRules file filtered.Selections |> applySuppression options.Strict file do
+                    for violation in
+                        runRules file filtered.Selections
+                        |> distinctViolations
+                        |> applySuppression options.Strict file do
                         violations.Add(violation)
 
                 let report =
                     { ToolName = toolName
                       Version = version
-                      Violations =
-                        violations
-                        |> Seq.toList
-                        |> List.distinctBy (fun violation ->
-                            violation.Location.File,
-                            violation.Location.StartLine,
-                            violation.Location.StartColumn,
-                            violation.RuleName,
-                            violation.Description)
-                      Errors = processingErrors |> Seq.toList }
+                      Violations = violations |> Seq.toList |> distinctViolations |> sortViolations
+                      Errors = processingErrors |> Seq.toList |> sortErrors }
 
                 { Report = report
                   Warnings = filtered.Warnings

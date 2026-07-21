@@ -10,6 +10,7 @@ open Domain
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveMethodLength")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "EmptyCatchBlock")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "GlobalVariable")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveClassComplexity")>]
 module Rulesets =
     type Loaded =
         { Selections: RuleSelection list
@@ -253,20 +254,27 @@ module Rulesets =
                 let mutable selections = []
                 let globalExclusions = directExcludedNames root
 
-                let addReference referenceElement =
+                let exclusionsFor (element: XElement) =
+                    element.Ancestors(XName.Get "ruleset")
+                    |> Seq.fold
+                        (fun exclusions ancestor -> Set.union exclusions (directExcludedNames ancestor))
+                        Set.empty
+                    |> Set.union globalExclusions
+
+                let addReference exclusions referenceElement =
                     match elementValue referenceElement "ref", elementValue referenceElement "name" with
                     | Some reference, _
                     | None, Some reference ->
                         match builtInRuleset reference with
                         | Some(_, ruleNames) ->
-                            selections <- (expandBuiltIn rulesetName ruleNames Map.empty globalExclusions) @ selections
+                            selections <- (expandBuiltIn rulesetName ruleNames Map.empty exclusions) @ selections
                         | None ->
                             match ruleNameFromText reference, rulesetNameFromText reference with
                             | Some _, Some referencedRuleset when isCompleteRulesetReference reference ->
                                 match builtInRuleset referencedRuleset with
                                 | Some(_, ruleNames) ->
                                     selections <-
-                                        (expandBuiltIn rulesetName ruleNames Map.empty globalExclusions) @ selections
+                                        (expandBuiltIn rulesetName ruleNames Map.empty exclusions) @ selections
                                 | None ->
                                     warnings <-
                                         sprintf "Unknown referenced ruleset '%s' in '%s'." reference path :: warnings
@@ -300,7 +308,7 @@ module Rulesets =
                                             | true, parsed -> Some parsed
                                             | _ -> None)
 
-                                    if not (globalExclusions.Contains(rule.Name.ToLowerInvariant())) then
+                                    if not (exclusions.Contains(rule.Name.ToLowerInvariant())) then
                                         selections <-
                                             selection rulesetName rule priority (propertiesFromElement referenceElement)
                                             :: selections
@@ -315,10 +323,14 @@ module Rulesets =
 
                 for referenceElement in root.Descendants(XName.Get "ruleset") do
                     if referenceElement <> root then
-                        addReference referenceElement
+                        addReference
+                            (Set.union (exclusionsFor referenceElement) (directExcludedNames referenceElement))
+                            referenceElement
 
                 for ruleElement in root.Descendants(XName.Get "rule") do
                     let excluded = excludedNames ruleElement
+                    let inheritedExclusions = exclusionsFor ruleElement
+                    let effectiveExclusions = Set.union inheritedExclusions excluded
 
                     match elementValue ruleElement "ref", elementValue ruleElement "name" with
                     | Some reference, _ ->
@@ -341,8 +353,7 @@ module Rulesets =
                                     |> Map.ofList
 
                                 selections <-
-                                    (expandBuiltIn rulesetName ruleNames overrides (Set.union globalExclusions excluded))
-                                    @ selections
+                                    (expandBuiltIn rulesetName ruleNames overrides effectiveExclusions) @ selections
                             | None ->
                                 warnings <-
                                     sprintf "Unknown referenced ruleset '%s' in '%s'." reference path :: warnings
@@ -356,10 +367,7 @@ module Rulesets =
                                         | true, parsed -> Some parsed
                                         | _ -> None)
 
-                                if
-                                    not (globalExclusions.Contains(rule.Name.ToLowerInvariant()))
-                                    && not (excluded.Contains(rule.Name.ToLowerInvariant()))
-                                then
+                                if not (effectiveExclusions.Contains(rule.Name.ToLowerInvariant())) then
                                     selections <-
                                         selection rulesetName rule priority (propertiesFromElement ruleElement)
                                         :: selections
@@ -379,10 +387,7 @@ module Rulesets =
                                         | true, parsed -> Some parsed
                                         | _ -> None)
 
-                                if
-                                    not (globalExclusions.Contains(rule.Name.ToLowerInvariant()))
-                                    && not (excluded.Contains(rule.Name.ToLowerInvariant()))
-                                then
+                                if not (effectiveExclusions.Contains(rule.Name.ToLowerInvariant())) then
                                     selections <-
                                         selection rulesetName rule priority (propertiesFromElement ruleElement)
                                         :: selections
@@ -394,10 +399,7 @@ module Rulesets =
                                 :: warnings
                     | None, Some ruleName ->
                         match definition ruleName with
-                        | Some rule when
-                            not (globalExclusions.Contains(rule.Name.ToLowerInvariant()))
-                            && not (excluded.Contains(rule.Name.ToLowerInvariant()))
-                            ->
+                        | Some rule when not (effectiveExclusions.Contains(rule.Name.ToLowerInvariant())) ->
                             let priority =
                                 elementValue ruleElement "priority"
                                 |> Option.bind (fun value ->

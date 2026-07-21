@@ -13,6 +13,7 @@ open Domain
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "TooManyPublicMethods")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "CyclomaticComplexity")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "NPathComplexity")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveClassComplexity")>]
 module Reports =
     let private escapeAnnotation (value: string) =
         value.Replace("%", "%25").Replace("\r", "%0D").Replace("\n", "%0A").Replace(":", "%3A").Replace(",", "%2C")
@@ -66,7 +67,12 @@ module Reports =
                     |> Option.map (fun location -> location.StartLine)
                     |> Option.defaultValue 0
 
-                compare leftLine rightLine)
+                let lineComparison = compare leftLine rightLine
+
+                if lineComparison <> 0 then
+                    lineComparison
+                else
+                    StringComparer.Ordinal.Compare(left.Message, right.Message))
 
     let private locationValue (location: SourceLocation) =
         {| file = location.File

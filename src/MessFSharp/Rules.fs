@@ -8,6 +8,12 @@ open Domain
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessivePublicCount")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "GlobalVariable")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "DevelopmentCodeFragment")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveClassComplexity")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveClassLength")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "TooManyMethods")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "NPathComplexity")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "CyclomaticComplexity")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "CountInLoopExpression")>]
 module Rules =
     let private ruleUri (name: string) =
         Some(sprintf "https://github.com/quality-gates/messfsharp#%s" (name.ToLowerInvariant()))
@@ -57,7 +63,7 @@ module Rules =
           Member =
             declaration
             |> Option.bind (fun item ->
-                if item.Kind = Member || item.Kind = Property then
+                if item.Kind = Member || item.Kind = Property || item.Kind = Constructor then
                     Some item.Name
                 else
                     None) }
@@ -104,11 +110,233 @@ module Rules =
         Map.tryFind (declaration.Name, declaration.Location.StartLine) file.ReferenceCountsByDeclaration
         |> Option.defaultValue (Map.tryFind declaration.Name file.ReferenceCounts |> Option.defaultValue 0)
 
-    let private hasToken (file: AnalyzedFile) (token: string) =
-        file.Tokens |> Array.exists (fun item -> item.Text = token)
-
     let private bodyHas (declaration: Declaration) (text: string) =
         declaration.Text.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0
+
+    let private mutationScope (file: AnalyzedFile) (declaration: Declaration) =
+        file.Declarations
+        |> List.filter (fun candidate ->
+            candidate.Name = defaultArg declaration.Parent ""
+            && (candidate.Kind = Module || candidate.Kind = Namespace || candidate.Kind = Type)
+            && candidate.ScopeStartLine <= declaration.Location.StartLine
+            && candidate.ScopeEndLine >= declaration.Location.StartLine)
+        |> List.sortByDescending (fun candidate -> candidate.ScopeStartLine)
+        |> List.tryHead
+        |> Option.map (fun owner -> owner.ScopeStartLine, owner.ScopeEndLine)
+        |> Option.defaultValue (1, file.Source.Lines.Length)
+
+    let private bindingScope (file: AnalyzedFile) (declaration: Declaration) =
+        if declaration.IsModuleLevel || declaration.Kind = Field then
+            mutationScope file declaration
+        else
+            file.Declarations
+            |> List.filter (fun candidate ->
+                (candidate.Kind = Function || candidate.Kind = Member)
+                && candidate.Location.StartLine < declaration.Location.StartLine
+                && candidate.ScopeStartLine <= declaration.Location.StartLine
+                && candidate.ScopeEndLine >= declaration.Location.StartLine)
+            |> List.sortByDescending (fun candidate -> candidate.Location.StartLine)
+            |> List.tryHead
+            |> Option.map (fun owner -> owner.ScopeStartLine, owner.ScopeEndLine)
+            |> Option.defaultValue (declaration.ScopeStartLine, declaration.ScopeEndLine)
+
+    let private bindingAt (file: AnalyzedFile) name line =
+        file.Declarations
+        |> List.filter (fun declaration ->
+            declaration.Name = name
+            && declaration.Location.StartLine <= line
+            && (let startLine, endLine = bindingScope file declaration
+                line >= startLine && line <= endLine))
+        |> List.sortByDescending (fun declaration ->
+            let startLine, _ = bindingScope file declaration
+            startLine, declaration.Location.StartLine)
+        |> List.tryHead
+
+    let private mutationObserved (file: AnalyzedFile) (declaration: Declaration) =
+        let startLine, endLine = mutationScope file declaration
+
+        file.Tokens
+        |> Array.mapi (fun index token -> index, token)
+        |> Array.exists (fun (index, token) ->
+            token.Text = declaration.Name
+            && token.Line >= startLine
+            && token.Line <= endLine
+            && bindingAt file declaration.Name token.Line
+               |> Option.exists (fun binding ->
+                   binding.Name = declaration.Name
+                   && binding.Location.StartLine = declaration.Location.StartLine
+                   && binding.Kind = declaration.Kind)
+            && ((index + 1 < file.Tokens.Length
+                 && (file.Tokens[index + 1].Text = "<-" || file.Tokens[index + 1].Text = ":="))
+                || (index + 3 < file.Tokens.Length
+                    && file.Tokens[index + 1].Text = "."
+                    && file.Tokens[index + 2].Text = "Value"
+                    && file.Tokens[index + 3].Text = "<-")))
+
+    let private numberedLines (file: AnalyzedFile) =
+        file.Source.Lines |> Array.mapi (fun index line -> index + 1, line)
+
+    let private lineIndent (line: string) =
+        line
+        |> Seq.takeWhile (fun character -> character = ' ' || character = '\t')
+        |> Seq.length
+
+    let private splitPropertyValues (value: string) =
+        value.Split([| ','; ';' |], StringSplitOptions.RemoveEmptyEntries)
+        |> Array.map (fun item -> item.Trim())
+        |> Array.filter (String.IsNullOrWhiteSpace >> not)
+        |> Array.toList
+
+    let private adjustedName (selection: RuleSelection) (name: string) =
+        let prefixes = propertyText selection "subtract-prefixes" "" |> splitPropertyValues
+        let suffixes = propertyText selection "subtract-suffixes" "" |> splitPropertyValues
+
+        let withoutPrefix =
+            prefixes
+            |> List.sortByDescending String.length
+            |> List.tryFind (fun prefix -> name.StartsWith(prefix, StringComparison.Ordinal))
+            |> Option.map (fun prefix -> name.Substring(prefix.Length))
+            |> Option.defaultValue name
+
+        suffixes
+        |> List.sortByDescending String.length
+        |> List.tryFind (fun suffix -> withoutPrefix.EndsWith(suffix, StringComparison.Ordinal))
+        |> Option.map (fun suffix -> withoutPrefix.Substring(0, withoutPrefix.Length - suffix.Length))
+        |> Option.defaultValue withoutPrefix
+
+    let private ignoredVariableName (selection: RuleSelection) (name: string) =
+        let pattern =
+            propertyText selection "ignorepattern" (propertyText selection "ignore-pattern" "^(x|xs|f|g|_|_.*)$")
+
+        let exceptions = propertyText selection "exceptions" "" |> splitPropertyValues
+
+        (try
+            Regex.IsMatch(name, pattern)
+         with _ ->
+             false)
+        || exceptions
+           |> List.exists (fun exceptionName -> String.Equals(exceptionName, name, StringComparison.Ordinal))
+
+    let private hasTerminatingExpression (text: string) =
+        Regex.IsMatch(text, "(?i)\\b(?:failwith|raise|Environment\\.Exit)\\b")
+
+    let private linesBeforeElse (file: AnalyzedFile) lineNumber column =
+        let currentLine = file.Source.Lines[lineNumber - 1]
+        let prefixLength = min currentLine.Length (max 0 (column - 1))
+        let currentPrefix = currentLine.Substring(0, prefixLength)
+        let collected = ResizeArray<string>()
+        collected.Add(currentPrefix)
+
+        let elseIndent = lineIndent currentLine
+        let mutable index = lineNumber - 2
+        let mutable stopped = false
+
+        while index >= 0 && not stopped do
+            let line = file.Source.Lines[index]
+
+            if
+                not (String.IsNullOrWhiteSpace line)
+                && not (line.TrimStart().StartsWith("//", StringComparison.Ordinal))
+            then
+                let indent = lineIndent line
+                collected.Add(line)
+
+                if indent <= elseIndent && Regex.IsMatch(line.TrimStart(), "^(?:if|elif)\\b") then
+                    stopped <- true
+                elif indent < elseIndent then
+                    stopped <- true
+
+            index <- index - 1
+
+        collected |> Seq.toList
+
+    let private linesInsideLoops (file: AnalyzedFile) =
+        let lines = file.Source.Lines
+        let result = ResizeArray<int>()
+
+        let loopLines =
+            file.Tokens
+            |> Array.filter (fun token -> token.Kind = Keyword && (token.Text = "for" || token.Text = "while"))
+            |> Array.map (fun token -> token.Line)
+            |> Array.distinct
+
+        let countLines =
+            file.Tokens
+            |> Array.windowed 2
+            |> Array.choose (fun pair ->
+                if pair[0].Text = "." && (pair[1].Text = "Length" || pair[1].Text = "Count") then
+                    Some pair[1].Line
+                else
+                    None)
+            |> Set.ofArray
+
+        for loopLineNumber in loopLines do
+            let loopIndex = loopLineNumber - 1
+            let loopIndent = lineIndent lines[loopIndex]
+            let mutable index = loopIndex
+            let mutable doneWithLoop = false
+
+            while index < lines.Length && not doneWithLoop do
+                let candidate = lines[index]
+
+                if
+                    index > loopIndex
+                    && not (String.IsNullOrWhiteSpace candidate)
+                    && not (candidate.TrimStart().StartsWith("//", StringComparison.Ordinal))
+                    && lineIndent candidate <= loopIndent
+                then
+                    doneWithLoop <- true
+                elif countLines.Contains(index + 1) then
+                    result.Add(index + 1)
+
+                index <- index + 1
+
+        result |> Seq.distinct |> Seq.toList
+
+    let private constructionBlocks (file: AnalyzedFile) =
+        let lines = file.Source.Lines
+        let blocks = ResizeArray<int * string>()
+        let mapFactories = set [ "ofList"; "ofArray"; "ofSeq" ]
+
+        let lineHasConstruction lineNumber =
+            let tokens = file.Tokens |> Array.filter (fun token -> token.Line = lineNumber)
+
+            tokens
+            |> Array.exists (fun token -> token.Text = "dict" || token.Text = "Dictionary")
+            || (tokens
+                |> Array.windowed 3
+                |> Array.exists (fun window ->
+                    window[0].Text = "Map"
+                    && window[1].Text = "."
+                    && mapFactories.Contains(window[2].Text)))
+
+        for startIndex in 0 .. lines.Length - 1 do
+            let nextLineStartsList =
+                startIndex + 1 < lines.Length
+                && lines[startIndex + 1].TrimStart().StartsWith("[", StringComparison.Ordinal)
+
+            if
+                lineHasConstruction (startIndex + 1)
+                && (lines[startIndex].Contains("[", StringComparison.Ordinal) || nextLineStartsList)
+            then
+                let mutable endIndex = startIndex
+                let mutable closed = false
+
+                while endIndex < lines.Length && not closed && endIndex - startIndex < 200 do
+                    if
+                        file.Tokens
+                        |> Array.exists (fun token ->
+                            token.Line = endIndex + 1 && token.Kind = Punctuation && token.Text = "]")
+                    then
+                        closed <- true
+
+                    endIndex <- endIndex + 1
+
+                let endIndex = min lines.Length endIndex
+                let text = lines[startIndex .. endIndex - 1] |> String.concat "\n"
+                blocks.Add(startIndex + 1, text)
+
+        blocks |> Seq.toList
 
     let private meaningfulLineCount (declaration: Declaration) =
         declaration.Text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')
@@ -133,14 +361,22 @@ module Rules =
         name
         |> Seq.exists (fun character -> "!%&*+-./<=>?@^|~:".IndexOf(character) >= 0)
 
+    let private isQualifiedIdentifier (name: string) =
+        name.Split('.')
+        |> Array.forall (fun part ->
+            not (String.IsNullOrWhiteSpace part)
+            && Regex.IsMatch(part, "^(?:``[^`]+``|[A-Za-z_][\\w']*)$"))
+
     let private isNameLike (name: string) =
         not (String.IsNullOrWhiteSpace name)
-        && not (isOperatorName name)
+        && (isQualifiedIdentifier name || not (isOperatorName name))
         && not (name.StartsWith("'", StringComparison.Ordinal))
         && not (name.StartsWith("get_", StringComparison.Ordinal))
+        && not (name |> Seq.exists Char.IsWhiteSpace)
 
     let private startsWithUpper (name: string) =
-        isNameLike name && Char.IsUpper(name[0])
+        isNameLike name
+        && (name.Split('.') |> Array.forall (fun part -> Char.IsUpper(part[0])))
 
     let private startsWithLower (name: string) =
         isNameLike name && (Char.IsLower(name[0]) || name[0] = '_')
@@ -239,7 +475,9 @@ module Rules =
                 let minimum = property selection "minimum" 1000
 
                 defsFor
-                    (fun declaration -> declaration.Kind = Type && declaration.IsClassLike)
+                    (fun declaration ->
+                        (declaration.Kind = Type && declaration.IsClassLike)
+                        || declaration.Kind = Module)
                     file
                     selection
                     (fun declaration ->
@@ -247,7 +485,7 @@ module Rules =
                             configuredLineCount selection declaration (metric file.LineCountByDeclaration declaration)
 
                         if value > minimum then
-                            Some(sprintf "Type length %d exceeds maximum %d lines." value minimum)
+                            Some(sprintf "Type or module length %d exceeds maximum %d lines." value minimum)
                         else
                             None) }
 
@@ -261,7 +499,10 @@ module Rules =
                 let maximum = property selection "maximum" 10
 
                 defsFor
-                    (fun declaration -> declaration.Kind = Function || declaration.Kind = Member)
+                    (fun declaration ->
+                        declaration.Kind = Function
+                        || declaration.Kind = Member
+                        || declaration.Kind = Constructor)
                     file
                     selection
                     (fun declaration ->
@@ -285,8 +526,9 @@ module Rules =
                     let count =
                         file.Declarations
                         |> List.filter (fun child ->
-                            child.Location.StartLine >= declaration.Location.StartLine
+                            child.Location.StartLine > declaration.Location.StartLine
                             && child.Location.StartLine <= declaration.ScopeEndLine
+                            && child.Parent = Some declaration.Name
                             && child.IsPublic
                             && child.Kind <> Parameter)
                         |> List.length
@@ -347,7 +589,7 @@ module Rules =
                     let count =
                         file.Declarations
                         |> List.filter (fun child ->
-                            (child.Kind = Member || child.Kind = Function)
+                            (child.Kind = Member || child.Kind = Function || child.Kind = Constructor)
                             && child.Parent = Some declaration.Name)
                         |> List.length
 
@@ -378,7 +620,7 @@ module Rules =
                     let count =
                         file.Declarations
                         |> List.filter (fun child ->
-                            (child.Kind = Member || child.Kind = Function)
+                            (child.Kind = Member || child.Kind = Function || child.Kind = Constructor)
                             && child.Parent = Some declaration.Name
                             && child.IsPublic)
                         |> List.length
@@ -405,7 +647,9 @@ module Rules =
                 let maximum = property selection "maximum" 50
 
                 file.Declarations
-                |> List.filter (fun declaration -> declaration.Kind = Type && declaration.IsClassLike)
+                |> List.filter (fun declaration ->
+                    (declaration.Kind = Type && declaration.IsClassLike)
+                    || declaration.Kind = Module)
                 |> List.choose (fun declaration ->
                     let value =
                         file.Declarations
@@ -421,7 +665,7 @@ module Rules =
                                 selection
                                 (Some declaration)
                                 declaration.Location.StartLine
-                                (sprintf "Aggregate type complexity %d exceeds maximum %d." value maximum)
+                                (sprintf "Aggregate type or module complexity %d exceeds maximum %d." value maximum)
                         )
                     else
                         None) }
@@ -436,12 +680,22 @@ module Rules =
                 let minimum = property selection "minimum" 3
 
                 defsFor
-                    (fun declaration -> declaration.Kind = Type && isNameLike declaration.Name)
+                    (fun declaration ->
+                        (declaration.Kind = Type
+                         || declaration.Kind = Module
+                         || declaration.Kind = Namespace
+                         || declaration.Kind = UnionCase)
+                        && isNameLike declaration.Name)
                     file
                     selection
                     (fun declaration ->
                         if declaration.Name.Length < minimum then
-                            Some(sprintf "Type name '%s' is shorter than minimum length %d." declaration.Name minimum)
+                            Some(
+                                sprintf
+                                    "Type, module, or union-case name '%s' is shorter than minimum length %d."
+                                    declaration.Name
+                                    minimum
+                            )
                         else
                             None) }
 
@@ -455,12 +709,22 @@ module Rules =
                 let maximum = property selection "maximum" 40
 
                 defsFor
-                    (fun declaration -> declaration.Kind = Type && isNameLike declaration.Name)
+                    (fun declaration ->
+                        (declaration.Kind = Type
+                         || declaration.Kind = Module
+                         || declaration.Kind = Namespace
+                         || declaration.Kind = UnionCase)
+                        && isNameLike declaration.Name)
                     file
                     selection
                     (fun declaration ->
                         if declaration.Name.Length > maximum then
-                            Some(sprintf "Type name '%s' exceeds maximum length %d." declaration.Name maximum)
+                            Some(
+                                sprintf
+                                    "Type, module, or union-case name '%s' exceeds maximum length %d."
+                                    declaration.Name
+                                    maximum
+                            )
                         else
                             None) }
 
@@ -472,8 +736,6 @@ module Rules =
           Check =
             fun file selection ->
                 let minimum = property selection "minimum" 3
-                let ignorePattern = propertyText selection "ignorepattern" "^(x|xs|f|g|_|_.*)$"
-                let ignored (name: string) = Regex.IsMatch(name, ignorePattern)
 
                 defsFor
                     (fun declaration ->
@@ -484,7 +746,9 @@ module Rules =
                     file
                     selection
                     (fun declaration ->
-                        if declaration.Name.Length < minimum && not (ignored declaration.Name) then
+                        let name = adjustedName selection declaration.Name
+
+                        if name.Length < minimum && not (ignoredVariableName selection declaration.Name) then
                             Some(
                                 sprintf
                                     "Variable name '%s' is shorter than minimum length %d."
@@ -502,8 +766,6 @@ module Rules =
           Check =
             fun file selection ->
                 let maximum = property selection "maximum" 20
-                let ignorePattern = propertyText selection "ignorepattern" "^(x|xs|f|g|_|_.*)$"
-                let ignored (name: string) = Regex.IsMatch(name, ignorePattern)
 
                 defsFor
                     (fun declaration ->
@@ -514,7 +776,9 @@ module Rules =
                     file
                     selection
                     (fun declaration ->
-                        if declaration.Name.Length > maximum && not (ignored declaration.Name) then
+                        let name = adjustedName selection declaration.Name
+
+                        if name.Length > maximum && not (ignoredVariableName selection declaration.Name) then
                             Some(sprintf "Variable name '%s' exceeds maximum length %d." declaration.Name maximum)
                         else
                             None) }
@@ -650,12 +914,16 @@ module Rules =
                     (fun declaration ->
                         (declaration.Kind = Member || declaration.Kind = Property)
                         && declaration.IsPrivate
-                        && not declaration.IsIgnored)
+                        && not declaration.IsIgnored
+                        || (declaration.Kind = Function
+                            && declaration.IsPrivate
+                            && declaration.IsModuleLevel
+                            && not declaration.IsIgnored))
                     file
                     selection
                     (fun declaration ->
                         if referenceCount file declaration <= 1 then
-                            Some(sprintf "Private method '%s' is never used." declaration.Name)
+                            Some(sprintf "Private method or function '%s' is never used." declaration.Name)
                         else
                             None) }
 
@@ -689,7 +957,24 @@ module Rules =
                         && declaration.IsBoolean
                         && (declaration.Name.IndexOf("flag", StringComparison.OrdinalIgnoreCase) >= 0
                             || declaration.Name.IndexOf("enable", StringComparison.OrdinalIgnoreCase) >= 0
-                            || declaration.Name.IndexOf("use", StringComparison.OrdinalIgnoreCase) >= 0))
+                            || declaration.Name.IndexOf("use", StringComparison.OrdinalIgnoreCase) >= 0
+                            || (file.Declarations
+                                |> List.filter (fun candidate ->
+                                    candidate.Name = defaultArg declaration.Parent ""
+                                    && (candidate.Kind = Function || candidate.Kind = Member)
+                                    && candidate.ScopeStartLine <= declaration.Location.StartLine
+                                    && candidate.ScopeEndLine >= declaration.Location.StartLine)
+                                |> List.sortByDescending (fun candidate -> candidate.Location.StartLine)
+                                |> List.tryHead
+                                |> Option.exists (fun candidate ->
+                                    (bodyHas candidate "if ")
+                                    && file.Tokens
+                                       |> Array.filter (fun token ->
+                                           token.Text = declaration.Name
+                                           && token.Line >= candidate.BodyStartLine
+                                           && token.Line <= candidate.BodyEndLine)
+                                       |> Array.length
+                                       |> fun count -> count > 1))))
                     file
                     selection
                     (fun declaration ->
@@ -702,21 +987,18 @@ module Rules =
           Description = "Reports only flattenable else branches after unconditional termination."
           Check =
             fun file selection ->
-                file.Source.Lines
-                |> Array.mapi (fun index line -> index + 1, line)
-                |> Array.choose (fun (lineNumber, line) ->
-                    if
-                        line.IndexOf("else", StringComparison.OrdinalIgnoreCase) >= 0
-                        && (line.IndexOf("failwith", StringComparison.OrdinalIgnoreCase) >= 0
-                            || line.IndexOf("raise", StringComparison.OrdinalIgnoreCase) >= 0
-                            || line.IndexOf("Environment.Exit", StringComparison.Ordinal) >= 0)
-                    then
+                file.Tokens
+                |> Array.filter (fun token -> token.Text = "else")
+                |> Array.choose (fun token ->
+                    let branchText = linesBeforeElse file token.Line token.Column |> String.concat "\n"
+
+                    if hasTerminatingExpression branchText then
                         Some(
                             violation
                                 file
                                 selection
                                 None
-                                lineNumber
+                                token.Line
                                 "An else branch follows an unconditional terminating expression and can be flattened."
                         )
                     else
@@ -730,20 +1012,28 @@ module Rules =
           Description = "Reports explicit static .NET access when this stricter policy is selected."
           Check =
             fun file selection ->
-                file.Source.Lines
-                |> Array.mapi (fun index line -> index + 1, line)
-                |> Array.choose (fun (lineNumber, line) ->
-                    if Regex.IsMatch(line, "\\b(System|Microsoft)\\.[A-Z][A-Za-z0-9_]*\\.") then
+                file.Tokens
+                |> Array.windowed 5
+                |> Array.choose (fun window ->
+                    if
+                        (window[0].Text = "System" || window[0].Text = "Microsoft")
+                        && window[1].Text = "."
+                        && window[2].Kind = Identifier
+                        && startsWithUpper window[2].Text
+                        && window[3].Text = "."
+                        && window[4].Kind = Identifier
+                    then
                         Some(
                             violation
                                 file
                                 selection
                                 None
-                                lineNumber
+                                window[0].Line
                                 "Explicit static access is enabled by an opinionated policy."
                         )
                     else
                         None)
+                |> Array.distinctBy (fun item -> item.Location.StartLine)
                 |> Array.toList }
 
     let ifStatementAssignment =
@@ -761,36 +1051,30 @@ module Rules =
           Check =
             fun file selection ->
                 let keyPattern =
-                    Regex("\\(\\s*(\"[^\"]*\"|'[^']*'|[0-9]+)\\s*,", RegexOptions.Compiled)
+                    Regex(
+                        "(?:\\(\\s*)?(\"[^\"]*\"|'[^']*'|-?[0-9]+|true|false)\\s*,",
+                        RegexOptions.Compiled ||| RegexOptions.IgnoreCase
+                    )
 
-                file.Source.Lines
-                |> Array.mapi (fun index line -> index + 1, line)
-                |> Array.choose (fun (lineNumber, line) ->
-                    if
-                        line.IndexOf("Map.ofList", StringComparison.OrdinalIgnoreCase) >= 0
-                        || line.IndexOf("dict", StringComparison.OrdinalIgnoreCase) >= 0
-                        || line.IndexOf("Dictionary", StringComparison.OrdinalIgnoreCase) >= 0
-                    then
-                        let keys =
-                            keyPattern.Matches(line)
-                            |> Seq.cast<Match>
-                            |> Seq.map (fun item -> item.Groups[1].Value)
-                            |> Seq.toList
+                constructionBlocks file
+                |> List.choose (fun (lineNumber, text) ->
+                    let keys =
+                        keyPattern.Matches(text)
+                        |> Seq.cast<Match>
+                        |> Seq.map (fun item -> item.Groups[1].Value)
+                        |> Seq.toList
 
-                        if keys.Length <> (keys |> List.distinct |> List.length) then
-                            Some(
-                                violation
-                                    file
-                                    selection
-                                    None
-                                    lineNumber
-                                    "A map or dictionary construction contains a duplicate key."
-                            )
-                        else
-                            None
+                    if keys.Length <> (keys |> List.distinct |> List.length) then
+                        Some(
+                            violation
+                                file
+                                selection
+                                None
+                                lineNumber
+                                "A map or dictionary construction contains a duplicate key."
+                        )
                     else
-                        None)
-                |> Array.toList }
+                        None) }
 
     let exitExpression =
         { Name = "ExitExpression"
@@ -799,16 +1083,33 @@ module Rules =
           Description = "Reports process-exit expressions selected by the design policy."
           Check =
             fun file selection ->
-                file.Source.Lines
-                |> Array.mapi (fun index line -> index + 1, line)
-                |> Array.choose (fun (lineNumber, line) ->
-                    if Regex.IsMatch(line, "\\b(exit|Environment\\.Exit)\\s*\\(") then
+                file.Tokens
+                |> Array.mapi (fun index token -> index, token)
+                |> Array.choose (fun (index, token) ->
+                    let hasNext text =
+                        index + 1 < file.Tokens.Length && file.Tokens[index + 1].Text = text
+
+                    let isExitCall =
+                        token.Kind = Identifier
+                        && token.Text = "exit"
+                        && (hasNext "("
+                            || (index + 1 < file.Tokens.Length && file.Tokens[index + 1].Kind = Number))
+
+                    let isEnvironmentExitCall =
+                        index + 3 < file.Tokens.Length
+                        && token.Kind = Identifier
+                        && token.Text = "Environment"
+                        && file.Tokens[index + 1].Text = "."
+                        && file.Tokens[index + 2].Text = "Exit"
+                        && file.Tokens[index + 3].Text = "("
+
+                    if isExitCall || isEnvironmentExitCall then
                         Some(
                             violation
                                 file
                                 selection
                                 None
-                                lineNumber
+                                token.Line
                                 "Process exit is embedded in an analyzable expression."
                         )
                     else
@@ -829,17 +1130,9 @@ module Rules =
           Description = "Reports collection-count expressions embedded in loops."
           Check =
             fun file selection ->
-                file.Source.Lines
-                |> Array.mapi (fun index line -> index + 1, line)
-                |> Array.choose (fun (lineNumber, line) ->
-                    if
-                        Regex.IsMatch(line, "\\b(for|while)\\b")
-                        && Regex.IsMatch(line, "\\.(Length|Count)\\b")
-                    then
-                        Some(violation file selection None lineNumber "Collection count is evaluated inside a loop.")
-                    else
-                        None)
-                |> Array.toList }
+                linesInsideLoops file
+                |> List.map (fun lineNumber ->
+                    violation file selection None lineNumber "Collection count is evaluated inside a loop.") }
 
     let developmentCodeFragment =
         { Name = "DevelopmentCodeFragment"
@@ -881,20 +1174,68 @@ module Rules =
           Description = "Reports exception handlers whose branch does no meaningful work."
           Check =
             fun file selection ->
-                file.Source.Lines
-                |> Array.mapi (fun index line -> index + 1, line)
+                let lines = file.Source.Lines
+
+                numberedLines file
                 |> Array.choose (fun (lineNumber, line) ->
-                    let nearby =
-                        file.Source.Lines
-                        |> Array.skip (max 0 (lineNumber - 6))
-                        |> Array.take (min 6 lineNumber)
-                        |> String.concat "\n"
+                    let pipeIndex = line.IndexOf('|')
+                    let withIndex = line.IndexOf("with", StringComparison.OrdinalIgnoreCase)
+                    let arrowIndex = line.IndexOf("->", StringComparison.Ordinal)
+
+                    let branchIndex =
+                        if pipeIndex >= 0 && pipeIndex < arrowIndex then pipeIndex
+                        elif withIndex >= 0 && withIndex < arrowIndex then withIndex
+                        else -1
+
+                    let clause =
+                        if branchIndex >= 0 then
+                            line.Substring(branchIndex).TrimStart()
+                        else
+                            ""
 
                     if
-                        Regex.IsMatch(line, "\\|.*->\\s*\\(\\s*\\)\\s*$")
-                        && nearby.IndexOf("try", StringComparison.OrdinalIgnoreCase) >= 0
+                        branchIndex >= 0
+                        && (clause.StartsWith("|", StringComparison.Ordinal)
+                            || clause.StartsWith("with", StringComparison.OrdinalIgnoreCase))
                     then
-                        Some(violation file selection None lineNumber "Exception handler is empty.")
+                        let afterArrow = line.Substring(arrowIndex + 2).Trim()
+                        let branchPrefix = line.Substring(0, branchIndex)
+                        let mutable nextIndex = lineNumber
+                        let mutable nextMeaningful = None
+
+                        while nextIndex < lines.Length && nextMeaningful.IsNone do
+                            let candidate = lines[nextIndex]
+
+                            if
+                                not (String.IsNullOrWhiteSpace candidate)
+                                && not (candidate.TrimStart().StartsWith("//", StringComparison.Ordinal))
+                            then
+                                nextMeaningful <- Some(candidate.Trim())
+
+                            nextIndex <- nextIndex + 1
+
+                        let emptyBody = afterArrow = "()" || nextMeaningful = Some "()"
+
+                        let precedingWith =
+                            branchPrefix.IndexOf("with", StringComparison.OrdinalIgnoreCase) >= 0
+                            || clause.StartsWith("with", StringComparison.OrdinalIgnoreCase)
+                            || (lineNumber > 1
+                                && lines[lineNumber - 2]
+                                    .TrimStart()
+                                    .StartsWith("with", StringComparison.OrdinalIgnoreCase))
+
+                        let hasTry =
+                            file.Tokens
+                            |> Array.exists (fun token ->
+                                token.Kind = Keyword
+                                && token.Text = "try"
+                                && token.Line < lineNumber
+                                && token.Line >= max 1 (lineNumber - 50))
+
+                        if emptyBody && precedingWith && hasTry then
+                            Some(violation file selection None lineNumber "Exception handler is empty.")
+                        else
+                            None
                     else
                         None)
                 |> Array.toList }
@@ -949,12 +1290,7 @@ module Rules =
                     file
                     selection
                     (fun declaration ->
-                        let mutated =
-                            file.MutatedNames.Contains(declaration.Name)
-                            || Regex.IsMatch(
-                                file.Source.Text,
-                                sprintf "\\b%s\\b\\s*(?::=|\\.Value\\s*<-)" (Regex.Escape declaration.Name)
-                            )
+                        let mutated = mutationObserved file declaration
 
                         if (mutated || reportImmutable) && not (declaration.IsIgnored) then
                             Some(
@@ -1067,17 +1403,20 @@ module Rules =
     let camelCaseClassName =
         pascalCaseRule
             "CamelCaseClassName"
-            "Type name"
-            (fun declaration -> declaration.Kind = Type && isNameLike declaration.Name)
-            "Reports type names that do not use F# PascalCase."
+            "Type, module, or union-case name"
+            (fun declaration ->
+                (declaration.Kind = Type
+                 || declaration.Kind = Module
+                 || declaration.Kind = Namespace
+                 || declaration.Kind = UnionCase)
+                && isNameLike declaration.Name)
+            "Reports type, module, and union-case names that do not use F# PascalCase."
 
     let camelCaseMethodName =
         pascalCaseRule
             "CamelCaseMethodName"
             "Member name"
-            (fun declaration ->
-                (declaration.Kind = Member || declaration.Kind = Property)
-                && isNameLike declaration.Name)
+            (fun declaration -> declaration.Kind = Member && isNameLike declaration.Name)
             "Reports public member names that do not use F# PascalCase."
 
     let camelCasePropertyName =

@@ -56,6 +56,14 @@ jobs:
           tests/Fixtures/quiet-mutable.fs
           tests/Fixtures/branching.fs
           tests/Fixtures/nested-branching.fs
+          tests/Fixtures/constructor.fs
+          tests/Fixtures/edge-cases.fs
+          tests/Fixtures/exit-cases.fs
+          tests/Fixtures/multiple-matches.fs
+          tests/Fixtures/namespace.fs
+          tests/Fixtures/pattern-parameters.fs
+          tests/Fixtures/private-declarations.fs
+          tests/Fixtures/shadowed-bindings.fs
 
       - name: Build with warnings as errors
         run: dotnet build messfsharp.sln --configuration Release --no-restore -warnaserror

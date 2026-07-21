@@ -13,35 +13,51 @@ open Domain
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveMethodLength")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "CountInLoopExpression")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveParameterList")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveClassComplexity")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveClassLength")>]
 module Model =
+    type private ParameterInfo =
+        { Name: string
+          Line: int
+          Column: int
+          IsBoolean: bool }
+
     let private declarationRegex pattern =
         Regex(pattern, RegexOptions.Compiled ||| RegexOptions.CultureInvariant)
 
-    let private modulePattern = declarationRegex "^\\s*(module|namespace)\\s+([^\\s=]+)"
+    let private modulePattern =
+        declarationRegex
+            "^\\s*(?:(?<accessibility>private|internal|public)\\s+)?(?<kind>module|namespace)\\s+(?:(?:rec\\s+)|(?<accessibility>private|internal|public)\\s+)*(?<name>[^\\s=]+)"
 
     let private typePattern =
-        declarationRegex "^\\s*type\\s+(``[^`]+``|[A-Za-z_][\\w'.]*)"
+        declarationRegex
+            "^\\s*type\\s+(?:(?<accessibility>private|internal|public)\\s+|(?:abstract|sealed|rec)\\s+)*(?<name>``[^`]+``|[A-Za-z_][\\w'.]*)"
 
     let private signatureValuePattern =
         declarationRegex "^\\s*val\\s+(``[^`]+``|[A-Za-z_][\\w']*)\\s*:"
 
     let private memberPattern =
         declarationRegex
-            "^\\s*(?:(public|private|internal|protected)\\s+)?(?:(static)\\s+)?(?:(abstract\\s+member|override|default\\s+member|member)\\s+)(.+?)(?:\\s*=|\\s+with|\\s*:|$)"
+            "^\\s*(?:(public|private|internal|protected)\\s+)?(?:(static)\\s+)?(?:(abstract\\s+member|abstract|override|default\\s+member|member)\\s+)(.+?)(?:\\s*=|\\s+with|\\s*:|$)"
 
     let private letPattern =
         declarationRegex
-            "^\\s*let\\s+(?:(public|private|internal)\\s+)?(?:(inline|rec)\\s+)?(?:(mutable)\\s+)?(.+?)\\s*="
+            "^\\s*let\\s+(?:(?:(?<accessibility>public|private|internal)|(?<modifier>inline|rec)|(?<mutable>mutable))\\s+)*(?<binding>.+?)\\s*="
 
     let private andPattern = declarationRegex "^\\s*and\\s+(?:(mutable)\\s+)?(.+?)\\s*="
 
     let private recordFieldPattern =
-        declarationRegex "(?:^|[;{])\\s*(?:\\[<[^>]+>\\]\\s*)?([A-Za-z_][\\w']*)\\s*:"
+        declarationRegex "(?:^|[;{])\\s*(?:\\[<[^>]+>\\]\\s*)?(``[^`]+``|[A-Za-z_][\\w']*)\\s*:"
 
     let private classFieldPattern =
-        declarationRegex "^\\s*(?:(static)\\s+)?(?:let|val)\\s+(?:(mutable)\\s+)?([A-Za-z_][\\w']*)\\s*(?::|=)"
+        declarationRegex
+            "^\\s*(?:(static)\\s+)?(?:let|val)\\s+(?:(mutable)\\s+)?(``[^`]+``|[A-Za-z_][\\w']*)\\s*(?::|=)"
 
-    let private unionCasePattern = declarationRegex "^\\s*\\|\\s*([A-Za-z_][\\w']*)"
+    let private unionCasePattern =
+        declarationRegex "\\|\\s*(``[^`]+``|[A-Za-z_][\\w']*)"
+
+    let private firstUnionCasePattern =
+        declarationRegex "=\\s*(``[^`]+``|[A-Za-z_][\\w']*)"
 
     let private suppressionPattern =
         declarationRegex "SuppressMessage(?:Attribute)?\\s*\\(\\s*\"[^\"]*\"\\s*,\\s*\"([^\"]+)\""
@@ -202,8 +218,34 @@ module Model =
                 let trimmed = candidate.TrimStart()
 
                 if
-                    trimmed.StartsWith("module ", StringComparison.Ordinal)
-                    || trimmed.StartsWith("namespace ", StringComparison.Ordinal)
+                    Regex.IsMatch(
+                        trimmed,
+                        "^(?:(?:private|internal|public)\\s+)?(?:module|namespace)(?:\\s+(?:rec|private|internal|public))*\\b"
+                    )
+                then
+                    result <- index
+                    found <- true
+
+            index <- index + 1
+
+        result
+
+    let private namespaceScopeEnd (source: SourceFile) startLine startIndent =
+        let mutable result = source.Lines.Length
+        let mutable index = startLine
+        let mutable found = false
+
+        while index < source.Lines.Length && not found do
+            let candidate = source.Lines[index]
+
+            if isMeaningfulLine candidate && indentation candidate <= startIndent then
+                let trimmed = candidate.TrimStart()
+
+                if
+                    Regex.IsMatch(
+                        trimmed,
+                        "^(?:(?:private|internal|public)\\s+)?namespace(?:\\s+rec|\\s+private|\\s+internal|\\s+public)*\\b"
+                    )
                 then
                     result <- index
                     found <- true
@@ -235,45 +277,165 @@ module Model =
             let tupleParameters = firstParameterGroup.Split('*').Length
             max arrowCount tupleParameters
 
-    let private parseParameterNames (source: SourceFile) lineNumber declarationName lineText =
-        let sourceForLine =
-            { FullPath = source.FullPath
-              Kind = source.Kind
-              Text = lineText
-              Lines = [| lineText |] }
+    let private parseParameterInfos (text: string) declarationName =
+        let sourceForDeclaration =
+            { FullPath = "<declaration>"
+              Kind = Implementation
+              Text = text
+              Lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n') }
 
-        let tokens = Scanner.scan sourceForLine
+        let tokens = Scanner.scan sourceForDeclaration
 
         let nameIndex =
             tokens |> Array.tryFindIndex (fun token -> token.Text = declarationName)
 
+        let isOperatorSyntaxName =
+            declarationName
+            |> Seq.exists (fun character -> "!%&*+-./<=>?@^|~:".IndexOf(character) >= 0)
+
         match nameIndex with
         | None -> []
+        | Some _ when isOperatorSyntaxName -> []
         | Some index ->
-            let parameters = ResizeArray<string * int>()
+            let parameters = ResizeArray<ParameterInfo>()
+            let mutable currentName: (string * int * int) option = None
+            let mutable currentIsBoolean = false
             let mutable inType = false
-            let mutable doneWithParameters = false
+            let mutable parenthesisDepth = 0
+            let mutable bracketDepth = 0
+            let mutable braceDepth = 0
             let mutable angleDepth = 0
+            let mutable doneWithParameters = false
 
-            for tokenIndex in index + 1 .. tokens.Length - 1 do
-                let token = tokens[tokenIndex]
+            let flush () =
+                match currentName with
+                | Some(name, line, column) ->
+                    parameters.Add(
+                        { Name = name
+                          Line = line
+                          Column = column
+                          IsBoolean = currentIsBoolean }
+                    )
+                | None -> ()
 
-                if not doneWithParameters then
-                    if not inType && (token.Text = "=" || token.Text = "->") then
-                        doneWithParameters <- true
-                    elif token.Text = ":" then
-                        inType <- true
-                    elif inType && token.Text = "<" then
-                        angleDepth <- angleDepth + 1
-                    elif inType && token.Text = ">" then
-                        angleDepth <- max 0 (angleDepth - 1)
-                    elif inType && token.Text = ")" && angleDepth = 0 then
-                        inType <- false
-                    elif inType && token.Text = "," && angleDepth = 0 then
-                        inType <- false
-                    elif not inType && token.Kind = Identifier then
-                        if token.Text <> "this" && token.Text <> "self" && token.Text <> "base" then
-                            parameters.Add(token.Text, token.Column)
+                currentName <- None
+                currentIsBoolean <- false
+
+            let isTopLevel () =
+                parenthesisDepth = 0 && bracketDepth = 0 && braceDepth = 0
+
+            let ignoredIdentifier value =
+                Set.contains
+                    value
+                    (set
+                        [ "as"
+                          "base"
+                          "do"
+                          "done"
+                          "else"
+                          "for"
+                          "function"
+                          "if"
+                          "in"
+                          "let"
+                          "match"
+                          "member"
+                          "new"
+                          "of"
+                          "or"
+                          "override"
+                          "rec"
+                          "self"
+                          "static"
+                          "then"
+                          "this"
+                          "try"
+                          "type"
+                          "use"
+                          "when"
+                          "with" ])
+
+            if index + 1 < tokens.Length then
+                for tokenIndex in index + 1 .. tokens.Length - 1 do
+                    let token = tokens[tokenIndex]
+
+                    if not doneWithParameters then
+                        match token.Text with
+                        | "=" when isTopLevel () ->
+                            flush ()
+                            doneWithParameters <- true
+                        | "->" when isTopLevel () && not inType ->
+                            flush ()
+                            doneWithParameters <- true
+                        | ":" when not (parenthesisDepth = 0 && bracketDepth = 0 && braceDepth = 0) -> inType <- true
+                        | ":" ->
+                            flush ()
+                            inType <- true
+                        | "," when inType && angleDepth = 0 ->
+                            inType <- false
+                            flush ()
+                        | ("," | ";") when not inType -> flush ()
+                        | ")" ->
+                            if parenthesisDepth > 0 then
+                                parenthesisDepth <- parenthesisDepth - 1
+
+                            if inType then
+                                inType <- false
+
+                            flush ()
+                        | "]" ->
+                            if bracketDepth > 0 then
+                                bracketDepth <- bracketDepth - 1
+
+                            if inType then
+                                inType <- false
+
+                            flush ()
+                        | "}" ->
+                            if braceDepth > 0 then
+                                braceDepth <- braceDepth - 1
+
+                            if inType then
+                                inType <- false
+
+                            flush ()
+                        | "(" ->
+                            if not inType && isTopLevel () then
+                                flush ()
+
+                            parenthesisDepth <- parenthesisDepth + 1
+                        | "[" ->
+                            if not inType && isTopLevel () then
+                                flush ()
+
+                            bracketDepth <- bracketDepth + 1
+                        | "{" ->
+                            if not inType && isTopLevel () then
+                                flush ()
+
+                            braceDepth <- braceDepth + 1
+                        | "<" -> angleDepth <- angleDepth + 1
+                        | ">" when angleDepth > 0 -> angleDepth <- angleDepth - 1
+                        | _ when angleDepth > 0 -> ()
+                        | _ when inType ->
+                            if token.Text.Equals("bool", StringComparison.OrdinalIgnoreCase) then
+                                currentIsBoolean <- true
+                        | _ when token.Kind = Identifier ->
+                            let value = token.Text.Trim('`')
+
+                            if
+                                not (ignoredIdentifier value)
+                                && value <> "_"
+                                && not (currentName.IsNone && value.Length > 0 && Char.IsUpper(value[0]))
+                            then
+                                match currentName with
+                                | Some _ -> flush ()
+                                | None -> ()
+
+                                currentName <- Some(value, token.Line, token.Column)
+                        | _ -> ()
+
+                flush ()
 
             parameters |> Seq.toList
 
@@ -358,7 +520,18 @@ module Model =
         |> Array.length
 
     let private referenceScope (declarations: Declaration list) (declaration: Declaration) sourceLineCount =
-        if
+        if declaration.Kind = Field then
+            declarations
+            |> List.filter (fun candidate ->
+                candidate.Kind = Type
+                && candidate.Name = defaultArg declaration.Parent ""
+                && candidate.ScopeStartLine <= declaration.Location.StartLine
+                && candidate.ScopeEndLine >= declaration.Location.StartLine)
+            |> List.sortByDescending (fun candidate -> candidate.ScopeStartLine)
+            |> List.tryHead
+            |> Option.map (fun owner -> owner.ScopeStartLine, owner.ScopeEndLine)
+            |> Option.defaultValue (declaration.ScopeStartLine, declaration.ScopeEndLine)
+        elif
             declaration.Kind = Parameter
             || ((declaration.Kind = Value || declaration.Kind = Function)
                 && not declaration.IsModuleLevel)
@@ -376,8 +549,56 @@ module Model =
         else
             1, sourceLineCount
 
+    let private referenceCountFor
+        (tokens: SyntaxToken array)
+        (declarations: Declaration list)
+        (target: Declaration)
+        sourceLineCount
+        =
+        let sameDeclaration (candidate: Declaration) =
+            candidate.Name = target.Name
+            && candidate.Kind = target.Kind
+            && candidate.Location.StartLine = target.Location.StartLine
+
+        let resolvesAt (token: SyntaxToken) =
+            declarations
+            |> List.filter (fun (candidate: Declaration) ->
+                candidate.Name = target.Name
+                && candidate.Location.StartLine <= token.Line
+                && not (
+                    candidate.Kind = Value
+                    && not candidate.IsFunction
+                    && token.Line <= candidate.BodyEndLine
+                )
+                && (let startLine, endLine = referenceScope declarations candidate sourceLineCount
+                    token.Line >= startLine && token.Line <= endLine))
+            |> List.sortWith (fun (left: Declaration) (right: Declaration) ->
+                let leftStart, _ = referenceScope declarations left sourceLineCount
+                let rightStart, _ = referenceScope declarations right sourceLineCount
+
+                if leftStart <> rightStart then
+                    compare rightStart leftStart
+                else
+                    compare right.Location.StartLine left.Location.StartLine)
+            |> List.tryHead
+            |> Option.exists sameDeclaration
+
+        let declarationReference =
+            if target.Kind = Value && not target.IsFunction then
+                1
+            else
+                0
+
+        declarationReference
+        + (tokens
+           |> Array.sumBy (fun (token: SyntaxToken) ->
+               if token.Text = target.Name && resolvesAt token then
+                   1
+               else
+                   0))
+
     let private complexity (tokens: SyntaxToken array) startLine endLine =
-        let within token =
+        let within (token: SyntaxToken) =
             token.Line >= startLine && token.Line <= endLine
 
         let branchWords = set [ "if"; "for"; "while"; "try"; "when" ]
@@ -411,7 +632,7 @@ module Model =
              + shortCircuitBranches)
 
     let private nPath (tokens: SyntaxToken array) startLine endLine =
-        let within token =
+        let within (token: SyntaxToken) =
             token.Line >= startLine && token.Line <= endLine
 
         let scopedTokens = tokens |> Array.filter within
@@ -539,12 +760,7 @@ module Model =
                 1
 
         let binaryDecisions =
-            count "for"
-            + count "while"
-            + count "try"
-            + count "when"
-            + count "&&"
-            + count "||"
+            count "for" + count "while" + count "try" + count "&&" + count "||"
 
         let ifPaths =
             if List.isEmpty decisions then
@@ -552,9 +768,44 @@ module Model =
             else
                 paths 0 scopedTokens.Length
 
-        let matchCount = count "match"
-        let matchCases = count "|"
-        let matchPaths = if matchCount = 0 then 1 else max matchCount matchCases
+        let matchStarts =
+            scopedTokens
+            |> Array.mapi (fun index token -> index, token)
+            |> Array.choose (fun (index, token) ->
+                if token.Text = "match" || token.Text = "function" then
+                    Some(index, token)
+                else
+                    None)
+
+        let matchPathFactors =
+            matchStarts
+            |> Array.mapi (fun matchIndex (matchTokenIndex, matchToken) ->
+                let owned tokenText =
+                    scopedTokens
+                    |> Array.mapi (fun tokenIndex token -> tokenIndex, token)
+                    |> Array.choose (fun (tokenIndex, token) ->
+                        if
+                            token.Text = tokenText
+                            && tokenIndex > matchTokenIndex
+                            && token.Column >= matchToken.Column
+                        then
+                            Some(tokenIndex, token)
+                        else
+                            None)
+                    |> Array.filter (fun (tokenIndex, token) ->
+                        matchStarts
+                        |> Array.mapi (fun candidateIndex (candidateTokenIndex, candidateToken) ->
+                            candidateIndex, candidateTokenIndex, candidateToken)
+                        |> Array.filter (fun (_, candidateTokenIndex, candidateToken) ->
+                            candidateTokenIndex < tokenIndex && candidateToken.Column <= token.Column)
+                        |> Array.tryLast
+                        |> Option.map (fun (candidateIndex, _, _) -> candidateIndex = matchIndex)
+                        |> Option.defaultValue false)
+                    |> Array.length
+
+                max 1 (owned "|" + owned "when"))
+
+        let matchPaths = matchPathFactors |> Array.fold multiply 1
 
         multiply (multiply ifPaths (powerOfTwo binaryDecisions)) matchPaths
 
@@ -613,7 +864,7 @@ module Model =
 
             if moduleMatch.Success then
                 let kind =
-                    if moduleMatch.Groups[1].Value = "module" then
+                    if moduleMatch.Groups["kind"].Value = "module" then
                         Module
                     else
                         Namespace
@@ -622,30 +873,67 @@ module Model =
                     if kind = Module then
                         moduleScopeEnd source lineNumber indent
                     else
-                        scopeEnd source lineNumber indent kind
+                        namespaceScopeEnd source lineNumber indent
 
-                add moduleMatch.Groups[2].Value kind "" false false false false false false true 0 endLine
+                add
+                    moduleMatch.Groups["name"].Value
+                    kind
+                    (defaultArg (matchGroup moduleMatch "accessibility") "")
+                    false
+                    false
+                    false
+                    false
+                    false
+                    false
+                    true
+                    0
+                    endLine
             else
                 let typeMatch = typePattern.Match(line)
 
                 if typeMatch.Success then
                     let endLine = scopeEnd source lineNumber indent Type
                     let body = sourceText source lineNumber endLine
+                    let bodyLines = source.Lines[(lineNumber - 1) .. (endLine - 1)]
 
                     let isRecord =
-                        body.IndexOf("{", StringComparison.Ordinal) >= 0
-                        && body.IndexOf("}", StringComparison.Ordinal) >= 0
+                        Regex.IsMatch(line, "=\\s*(?:struct\\s+)?\\{")
+                        || (bodyLines
+                            |> Array.exists (fun bodyLine ->
+                                bodyLine.TrimStart().StartsWith("{", StringComparison.Ordinal)))
 
-                    let isUnion = body.IndexOf("|", StringComparison.Ordinal) >= 0
+                    let isUnion =
+                        bodyLines
+                        |> Array.mapi (fun offset bodyLine -> lineNumber + offset, bodyLine)
+                        |> Array.exists (fun (bodyLineNumber, bodyLine) ->
+                            (bodyLineNumber = lineNumber
+                             && Regex.IsMatch(bodyLine, "=.+\\|\\s*(``[^`]+``|[A-Za-z_][\\w']*)"))
+                            || (bodyLineNumber > lineNumber
+                                && indentation bodyLine <= indent + 4
+                                && unionCasePattern.IsMatch(bodyLine)))
 
                     let isClassLike =
                         not isRecord
                         && not isUnion
-                        && (body.IndexOf("member", StringComparison.Ordinal) >= 0
+                        && (Regex.IsMatch(line, "^\\s*type\\s+.*\\([^)]*\\)\\s*=")
+                            || body.IndexOf("member", StringComparison.Ordinal) >= 0
                             || body.IndexOf("class", StringComparison.Ordinal) >= 0
-                            || body.IndexOf("let ", StringComparison.Ordinal) >= 0)
+                            || body.IndexOf("let ", StringComparison.Ordinal) >= 0
+                            || body.IndexOf("abstract", StringComparison.Ordinal) >= 0)
 
-                    add typeMatch.Groups[1].Value Type "" false false isRecord isUnion isClassLike false true 0 endLine
+                    add
+                        typeMatch.Groups["name"].Value
+                        Type
+                        (defaultArg (matchGroup typeMatch "accessibility") "")
+                        false
+                        false
+                        isRecord
+                        isUnion
+                        isClassLike
+                        false
+                        true
+                        0
+                        endLine
                 else
                     let signatureMatch =
                         if source.Kind = Signature then
@@ -702,6 +990,7 @@ module Model =
                             match memberName memberText with
                             | Some name ->
                                 let endLine = scopeEnd source lineNumber indent Member
+                                let declarationText = sourceText source lineNumber endLine
 
                                 let accessibility =
                                     defaultArg
@@ -712,17 +1001,24 @@ module Model =
                                              "")
 
                                 let isStatic = (matchGroup memberMatch "2").IsSome
-                                let parameterCount = parseParameterNames source lineNumber name line |> List.length
+                                let parsedParameterCount = parseParameterInfos declarationText name |> List.length
+
+                                let parameterCount =
+                                    if parsedParameterCount = 0 && line.Contains("->", StringComparison.Ordinal) then
+                                        max parsedParameterCount (signatureParameterCount line)
+                                    else
+                                        parsedParameterCount
 
                                 let kind =
-                                    if
-                                        memberMatch.Groups[4].Value.IndexOf(" with", StringComparison.Ordinal) >= 0
-                                        || memberMatch.Groups[4].Value.IndexOf("member val", StringComparison.Ordinal)
-                                           >= 0
-                                    then
-                                        Property
-                                    else
-                                        Member
+                                    let propertyLike =
+                                        line.IndexOf("member val", StringComparison.OrdinalIgnoreCase) >= 0
+                                        || line.IndexOf(" with", StringComparison.OrdinalIgnoreCase) >= 0
+                                        || (parameterCount = 0
+                                            && memberText.IndexOf('(') < 0
+                                            && (line.Contains("=", StringComparison.Ordinal)
+                                                || line.Contains(":", StringComparison.Ordinal)))
+
+                                    if propertyLike then Property else Member
 
                                 add
                                     name
@@ -742,18 +1038,28 @@ module Model =
                             let letMatch = letPattern.Match(line)
 
                             if letMatch.Success then
-                                match firstName letMatch.Groups[4].Value with
+                                match firstName letMatch.Groups["binding"].Value with
                                 | Some name ->
                                     let endLine = scopeEnd source lineNumber indent Function
-                                    let parameterCount = parseParameterNames source lineNumber name line |> List.length
+                                    let declarationText = sourceText source lineNumber endLine
+                                    let parameterCount = parseParameterInfos declarationText name |> List.length
+                                    let bindingText = letMatch.Groups["binding"].Value.Trim()
+
+                                    let hasExplicitParameterGroup =
+                                        bindingText.Length > name.Length
+                                        && bindingText
+                                            .Substring(name.Length)
+                                            .TrimStart()
+                                            .StartsWith("(", StringComparison.Ordinal)
 
                                     let isFunction =
                                         parameterCount > 0
-                                        || letMatch.Groups[4].Value.IndexOf("fun ", StringComparison.Ordinal) >= 0
-                                        || letMatch.Groups[4].Value.IndexOf("function", StringComparison.Ordinal) >= 0
+                                        || hasExplicitParameterGroup
+                                        || bindingText.IndexOf("fun ", StringComparison.Ordinal) >= 0
+                                        || bindingText.IndexOf("function", StringComparison.Ordinal) >= 0
 
-                                    let accessibility = defaultArg (matchGroup letMatch "1") ""
-                                    let isMutable = (matchGroup letMatch "3").IsSome
+                                    let accessibility = defaultArg (matchGroup letMatch "accessibility") ""
+                                    let isMutable = (matchGroup letMatch "mutable").IsSome
                                     let parent = nearestParent (declarations |> Seq.toList) lineNumber
 
                                     let moduleLevel =
@@ -762,7 +1068,6 @@ module Model =
                                         | _ -> enclosingBody (declarations |> Seq.toList) lineNumber |> Option.isNone
 
                                     let kind = if isFunction then Function else Value
-                                    let declarationText = sourceText source lineNumber endLine
 
                                     declarations.Add(
                                         makeDeclaration
@@ -796,9 +1101,9 @@ module Model =
                                         match firstName andMatch.Groups[2].Value with
                                         | Some name ->
                                             let endLine = scopeEnd source lineNumber indent Function
+                                            let declarationText = sourceText source lineNumber endLine
 
-                                            let parameterCount =
-                                                parseParameterNames source lineNumber name line |> List.length
+                                            let parameterCount = parseParameterInfos declarationText name |> List.length
 
                                             let parent = nearestParent (declarations |> Seq.toList) lineNumber
 
@@ -808,8 +1113,6 @@ module Model =
                                                 | _ ->
                                                     enclosingBody (declarations |> Seq.toList) lineNumber
                                                     |> Option.isNone
-
-                                            let declarationText = sourceText source lineNumber endLine
 
                                             declarations.Add(
                                                 makeDeclaration
@@ -849,38 +1152,79 @@ module Model =
         for typeDeclaration in
             declarations
             |> List.filter (fun declaration -> declaration.Kind = Type && declaration.IsUnion) do
-            for lineNumber in typeDeclaration.Location.StartLine + 1 .. typeDeclaration.ScopeEndLine do
+            let typeIndent =
+                indentation (lineAt source.Lines typeDeclaration.Location.StartLine)
+
+            let lineNumbers =
+                if typeDeclaration.Location.StartLine <= typeDeclaration.ScopeEndLine then
+                    [ typeDeclaration.Location.StartLine .. typeDeclaration.ScopeEndLine ]
+                else
+                    []
+
+            for lineNumber in lineNumbers do
                 let line = lineAt source.Lines lineNumber
-                let caseMatch = unionCasePattern.Match(line)
 
-                if caseMatch.Success then
-                    let name = caseMatch.Groups[1].Value
+                if indentation line <= typeIndent + 4 then
+                    if lineNumber = typeDeclaration.Location.StartLine then
+                        let firstCaseMatch = firstUnionCasePattern.Match(line)
 
-                    result.Add(
-                        makeDeclaration
-                            source
-                            name
-                            UnionCase
-                            lineNumber
-                            (indentation line + 1)
-                            (Some typeDeclaration.Name)
-                            (Some Type)
-                            ""
-                            false
-                            false
-                            false
-                            false
-                            true
-                            false
-                            false
-                            false
-                            0
-                            lineNumber
-                            lineNumber
-                            lineNumber
-                            lineNumber
-                            (line.Trim())
-                    )
+                        if firstCaseMatch.Success then
+                            let name = firstCaseMatch.Groups[1].Value
+
+                            result.Add(
+                                makeDeclaration
+                                    source
+                                    name
+                                    UnionCase
+                                    lineNumber
+                                    (firstCaseMatch.Groups[1].Index + 1)
+                                    (Some typeDeclaration.Name)
+                                    (Some Type)
+                                    ""
+                                    false
+                                    false
+                                    false
+                                    false
+                                    true
+                                    false
+                                    false
+                                    false
+                                    0
+                                    lineNumber
+                                    lineNumber
+                                    lineNumber
+                                    lineNumber
+                                    (line.Trim())
+                            )
+
+                    for caseMatch in unionCasePattern.Matches(line) |> Seq.cast<Match> do
+                        let name = caseMatch.Groups[1].Value
+
+                        result.Add(
+                            makeDeclaration
+                                source
+                                name
+                                UnionCase
+                                lineNumber
+                                (caseMatch.Groups[1].Index + 1)
+                                (Some typeDeclaration.Name)
+                                (Some Type)
+                                ""
+                                false
+                                false
+                                false
+                                false
+                                true
+                                false
+                                false
+                                false
+                                0
+                                lineNumber
+                                lineNumber
+                                lineNumber
+                                lineNumber
+                                (line.Trim())
+                        )
 
         result |> Seq.toList
 
@@ -897,7 +1241,13 @@ module Model =
                 else
                     typeDeclaration.Location.StartLine + 1
 
-            for lineNumber in firstLine .. typeDeclaration.ScopeEndLine do
+            let lineNumbers =
+                if firstLine <= typeDeclaration.ScopeEndLine then
+                    [ firstLine .. typeDeclaration.ScopeEndLine ]
+                else
+                    []
+
+            for lineNumber in lineNumbers do
                 let line = lineAt source.Lines lineNumber
 
                 let fieldMatches =
@@ -951,26 +1301,91 @@ module Model =
 
         result |> Seq.toList
 
+    let private constructorParameterText (text: string) name =
+        let openIndex = text.IndexOf('(')
+        let closeIndex = text.LastIndexOf(')')
+
+        if openIndex >= 0 && closeIndex > openIndex then
+            sprintf "let %s %s =" name (text.Substring(openIndex, closeIndex - openIndex + 1))
+        else
+            sprintf "let %s =" name
+
+    let private addConstructors source declarations =
+        let result = ResizeArray<Declaration>()
+
+        for declaration in declarations do
+            result.Add(declaration)
+
+        for typeDeclaration in
+            declarations
+            |> List.filter (fun declaration -> declaration.Kind = Type && declaration.IsClassLike) do
+            let header = lineAt source.Lines typeDeclaration.Location.StartLine
+            let openIndex = header.IndexOf('(')
+            let equalsIndex = header.IndexOf('=')
+
+            if openIndex >= 0 && equalsIndex > openIndex then
+                let synthetic = constructorParameterText header typeDeclaration.Name
+
+                let parameterCount =
+                    parseParameterInfos synthetic typeDeclaration.Name |> List.length
+
+                result.Add(
+                    makeDeclaration
+                        source
+                        typeDeclaration.Name
+                        Constructor
+                        typeDeclaration.Location.StartLine
+                        (openIndex + 1)
+                        (Some typeDeclaration.Name)
+                        (Some Type)
+                        ""
+                        false
+                        false
+                        false
+                        false
+                        false
+                        false
+                        false
+                        false
+                        parameterCount
+                        typeDeclaration.ScopeStartLine
+                        typeDeclaration.ScopeEndLine
+                        typeDeclaration.BodyStartLine
+                        typeDeclaration.BodyEndLine
+                        header
+                )
+
+        result |> Seq.toList
+
     let private addParameters source declarations =
         let result = ResizeArray<Declaration>()
 
         for declaration in declarations do
             result.Add(declaration)
 
-            if declaration.Kind = Function || declaration.Kind = Member then
-                let line = lineAt source.Lines declaration.Location.StartLine
+            if
+                declaration.Kind = Function
+                || declaration.Kind = Member
+                || declaration.Kind = Constructor
+            then
+                let parameterText =
+                    if declaration.Kind = Constructor then
+                        constructorParameterText declaration.Text declaration.Name
+                    else
+                        declaration.Text
 
-                let parameterNames =
-                    parseParameterNames source declaration.Location.StartLine declaration.Name line
+                let parameterNames = parseParameterInfos parameterText declaration.Name
 
-                for parameterName, parameterColumn in parameterNames do
-                    result.Add(
+                for parameter in parameterNames do
+                    let parameterLine = declaration.Location.StartLine + parameter.Line - 1
+
+                    let parameterDeclaration =
                         makeDeclaration
                             source
-                            parameterName
+                            parameter.Name
                             Parameter
-                            declaration.Location.StartLine
-                            parameterColumn
+                            parameterLine
+                            parameter.Column
                             (Some declaration.Name)
                             (Some declaration.Kind)
                             ""
@@ -987,7 +1402,14 @@ module Model =
                             declaration.ScopeEndLine
                             declaration.BodyStartLine
                             declaration.BodyEndLine
-                            (line.Trim())
+                            (if parameter.IsBoolean then
+                                 sprintf "%s: bool" parameter.Name
+                             else
+                                 parameter.Name)
+
+                    result.Add(
+                        { parameterDeclaration with
+                            Location = sourceLocation source parameterLine parameterLine parameter.Column }
                     )
 
         result |> Seq.toList
@@ -998,7 +1420,8 @@ module Model =
             match declaration.Kind with
             | UnionCase
             | Field
-            | Parameter -> declaration
+            | Parameter
+            | Constructor -> declaration
             | _ ->
                 match nearestParent declarations declaration.Location.StartLine with
                 | None -> declaration
@@ -1016,7 +1439,8 @@ module Model =
     let analyze (source: SourceFile) =
         let tokens = Scanner.scan source
         let baseDeclarations = buildBaseDeclarations source
-        let withCases = addUnionCases source baseDeclarations
+        let withConstructors = addConstructors source baseDeclarations
+        let withCases = addUnionCases source withConstructors
         let withFields = addFields source withCases
         let withParameters = addParameters source withFields
         let declarations = applyParents withParameters
@@ -1029,10 +1453,8 @@ module Model =
         let referenceCountsByDeclaration =
             declarations
             |> List.map (fun declaration ->
-                let startLine, endLine = referenceScope declarations declaration source.Lines.Length
-
                 (declaration.Name, declaration.Location.StartLine),
-                tokenCount tokens declaration.Name startLine endLine)
+                referenceCountFor tokens declarations declaration source.Lines.Length)
             |> Map.ofList
 
         let mutatedNames =

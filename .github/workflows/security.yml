@@ -25,7 +25,7 @@ jobs:
 
       - name: Restore with NuGet audit enabled
         run: >-
-          dotnet restore messfsharp.sln
+          dotnet restore messfsharp.sln --locked-mode
           -p:NuGetAudit=true
           -p:NuGetAuditMode=all
           -p:TreatWarningsAsErrors=true
