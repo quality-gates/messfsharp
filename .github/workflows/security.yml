@@ -1,0 +1,32 @@
+name: Dependency security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  nuget-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore with NuGet audit enabled
+        run: >-
+          dotnet restore messfsharp.sln
+          -p:NuGetAudit=true
+          -p:NuGetAuditMode=all
+          -p:TreatWarningsAsErrors=true
+          '-p:WarningsAsErrors=NU1901;NU1902;NU1903;NU1904'

@@ -1,0 +1,58 @@
+name: Code quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - name: Verify license
+        run: test -s LICENSE
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Restore packages
+        run: dotnet restore messfsharp.sln --locked-mode
+
+      - name: Check F# formatting
+        run: >-
+          dotnet tool run fantomas --check
+          src/MessFSharp/Domain.fs
+          src/MessFSharp/Discovery.fs
+          src/MessFSharp/Scanner.fs
+          src/MessFSharp/Parsing.fs
+          src/MessFSharp/Model.fs
+          src/MessFSharp/Rules.fs
+          src/MessFSharp/Rulesets.fs
+          src/MessFSharp/Reports.fs
+          src/MessFSharp/Engine.fs
+          src/MessFSharp/Cli.fs
+          src/MessFSharp/Program.fs
+          tests/MessFSharp.Tests/AnalyzerTests.fs
+          tests/MessFSharp.Tests/CliTests.fs
+          tests/Fixtures/clean.fs
+          tests/Fixtures/bad.fs
+          tests/Fixtures/signature.fsi
+          tests/Fixtures/script.fsx
+          tests/Fixtures/suppressed.fs
+
+      - name: Build with warnings as errors
+        run: dotnet build messfsharp.sln --configuration Release --no-restore -warnaserror
