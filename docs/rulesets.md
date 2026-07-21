@@ -26,3 +26,33 @@ fields 15, methods 25, public methods 10, aggregate type complexity 50,
 type names 3–40 characters, variable names 3–20 characters, function/member
 names at least 3 characters, coupling 13, and LCOM4 1. Rule properties can
 override these values in custom XML rulesets.
+
+The supported rule properties are:
+
+| Rules | Properties and defaults |
+| --- | --- |
+| `CyclomaticComplexity` | `maximum=10`, `reportLevel=10` |
+| `NPathComplexity` | `maximum=200`, `reportLevel=200` |
+| `ExcessiveMethodLength` | `minimum=100`, `ignore-whitespace=true` |
+| `ExcessiveClassLength` | `minimum=1000`, `ignore-whitespace=true` |
+| `ExcessiveParameterList` | `maximum=10`, `reportLevel=10` |
+| `ExcessivePublicCount` | `maximum=45`, `reportLevel=45` |
+| `TooManyFields` | `maxfields=15`, `reportLevel=15` |
+| `TooManyMethods` | `maxmethods=25`, `reportLevel=25` |
+| `TooManyPublicMethods` | `maxmethods=10`, `reportLevel=10` |
+| `ExcessiveClassComplexity` | `maximum=50`, `reportLevel=50` |
+| `ShortClassName` | `minimum=3` |
+| `LongClassName` | `maximum=40` |
+| `ShortVariable` | `minimum=3`, `ignorepattern=^(x|xs|f|g|_|_.*)$` |
+| `LongVariable` | `maximum=20`, `ignorepattern=^(x|xs|f|g|_|_.*)$` |
+| `ShortMethodName` | `minimum=3` |
+| `ConstantNamingConventions` | `convention=PascalCase` |
+| `BooleanGetMethodName` | `checkParameterizedMethods=true` |
+| `CouplingBetweenObjects` | `maximum=13` |
+| `LackOfCohesionOfMethods` | `minimum=1` |
+| `GlobalVariable` | `report-immutable=false` |
+| `DevelopmentCodeFragment` | `unwanted-functions=TODO,FIXME,HACK,Debug.Assert` |
+
+Rules without a row above have no configurable properties. Property names are
+case-insensitive and values are interpreted according to the rule; unknown
+properties are retained in the selection for forward-compatible custom rules.

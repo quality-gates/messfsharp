@@ -102,6 +102,7 @@ module Domain =
           NPathByDeclaration: Map<string * int, int>
           LineCountByDeclaration: Map<string * int, int>
           ReferenceCounts: Map<string, int>
+          ReferenceCountsByDeclaration: Map<string * int, int>
           MutatedNames: Set<string>
           TypeFields: Map<string, Declaration list>
           TypeMethods: Map<string, Declaration list> }

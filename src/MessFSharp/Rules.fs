@@ -13,7 +13,15 @@ module Rules =
         Some(sprintf "https://github.com/quality-gates/messfsharp#%s" (name.ToLowerInvariant()))
 
     let private property (selection: RuleSelection) (name: string) (fallback: int) =
-        match Map.tryFind name selection.Properties with
+        let configured =
+            selection.Properties
+            |> Seq.tryPick (fun item ->
+                if String.Equals(item.Key, name, StringComparison.OrdinalIgnoreCase) then
+                    Some item.Value
+                else
+                    None)
+
+        match configured with
         | Some value ->
             match Int32.TryParse(value: string) with
             | true, parsed -> parsed
@@ -21,7 +29,13 @@ module Rules =
         | None -> fallback
 
     let private propertyText (selection: RuleSelection) (name: string) (fallback: string) =
-        defaultArg (Map.tryFind name selection.Properties) fallback
+        selection.Properties
+        |> Seq.tryPick (fun item ->
+            if String.Equals(item.Key, name, StringComparison.OrdinalIgnoreCase) then
+                Some item.Value
+            else
+                None)
+        |> Option.defaultValue fallback
 
     let private context (file: AnalyzedFile) (declaration: Declaration option) =
         let line =
@@ -85,6 +99,10 @@ module Rules =
     let private metric (map: Map<string * int, int>) (declaration: Declaration) =
         Map.tryFind (declaration.Name, declaration.Location.StartLine) map
         |> Option.defaultValue 0
+
+    let private referenceCount (file: AnalyzedFile) (declaration: Declaration) =
+        Map.tryFind (declaration.Name, declaration.Location.StartLine) file.ReferenceCountsByDeclaration
+        |> Option.defaultValue (Map.tryFind declaration.Name file.ReferenceCounts |> Option.defaultValue 0)
 
     let private hasToken (file: AnalyzedFile) (token: string) =
         file.Tokens |> Array.exists (fun item -> item.Text = token)
@@ -595,7 +613,7 @@ module Rules =
                     file
                     selection
                     (fun declaration ->
-                        if Map.tryFind declaration.Name file.ReferenceCounts |> Option.defaultValue 0 <= 1 then
+                        if referenceCount file declaration <= 1 then
                             Some(sprintf "Private field '%s' is never used." declaration.Name)
                         else
                             None) }
@@ -616,7 +634,7 @@ module Rules =
                     file
                     selection
                     (fun declaration ->
-                        if Map.tryFind declaration.Name file.ReferenceCounts |> Option.defaultValue 0 <= 1 then
+                        if referenceCount file declaration <= 1 then
                             Some(sprintf "Local binding '%s' is never used." declaration.Name)
                         else
                             None) }
@@ -636,7 +654,7 @@ module Rules =
                     file
                     selection
                     (fun declaration ->
-                        if Map.tryFind declaration.Name file.ReferenceCounts |> Option.defaultValue 0 <= 1 then
+                        if referenceCount file declaration <= 1 then
                             Some(sprintf "Private method '%s' is never used." declaration.Name)
                         else
                             None) }
@@ -653,7 +671,7 @@ module Rules =
                     file
                     selection
                     (fun declaration ->
-                        if Map.tryFind declaration.Name file.ReferenceCounts |> Option.defaultValue 0 <= 1 then
+                        if referenceCount file declaration <= 1 then
                             Some(sprintf "Formal parameter '%s' is never used." declaration.Name)
                         else
                             None) }
@@ -932,10 +950,11 @@ module Rules =
                     selection
                     (fun declaration ->
                         let mutated =
-                            declaration.IsMutable
-                            || file.MutatedNames.Contains(declaration.Name)
-                            || bodyHas declaration "ref "
-                            || bodyHas declaration ":="
+                            file.MutatedNames.Contains(declaration.Name)
+                            || Regex.IsMatch(
+                                file.Source.Text,
+                                sprintf "\\b%s\\b\\s*(?::=|\\.Value\\s*<-)" (Regex.Escape declaration.Name)
+                            )
 
                         if (mutated || reportImmutable) && not (declaration.IsIgnored) then
                             Some(
@@ -1030,7 +1049,7 @@ module Rules =
                     else
                         None) }
 
-    let private camelCaseRule name kind predicate description =
+    let private pascalCaseRule name kind predicate description =
         { Name = name
           DefaultPriority = 4
           DefaultProperties = Map.empty
@@ -1046,14 +1065,14 @@ module Rules =
                         Some(sprintf "%s '%s' should use PascalCase." kind declaration.Name)) }
 
     let camelCaseClassName =
-        camelCaseRule
+        pascalCaseRule
             "CamelCaseClassName"
             "Type name"
             (fun declaration -> declaration.Kind = Type && isNameLike declaration.Name)
             "Reports type names that do not use F# PascalCase."
 
     let camelCaseMethodName =
-        camelCaseRule
+        pascalCaseRule
             "CamelCaseMethodName"
             "Member name"
             (fun declaration ->
@@ -1062,7 +1081,7 @@ module Rules =
             "Reports public member names that do not use F# PascalCase."
 
     let camelCasePropertyName =
-        camelCaseRule
+        pascalCaseRule
             "CamelCasePropertyName"
             "Property name"
             (fun declaration -> declaration.Kind = Property && isNameLike declaration.Name)
@@ -1094,7 +1113,7 @@ module Rules =
             fun file selection ->
                 defsFor
                     (fun declaration ->
-                        declaration.Kind = Value
+                        (declaration.Kind = Value || declaration.Kind = Function)
                         && not declaration.IsLiteral
                         && isNameLike declaration.Name)
                     file

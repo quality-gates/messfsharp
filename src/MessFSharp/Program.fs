@@ -61,4 +61,4 @@ module Program =
             | Ok() -> result.ExitCode
             | Error message ->
                 Console.Error.WriteLine(sprintf "error: %s" message)
-                1
+                if options.IgnoreErrorsOnExit then result.ExitCode else 1

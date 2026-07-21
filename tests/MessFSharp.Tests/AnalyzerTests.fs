@@ -118,3 +118,47 @@ module AnalyzerTests =
 
         Assert.Empty(result.Report.Errors)
         Assert.Empty(result.Report.Violations)
+
+    [<Fact>]
+    let ``unwritten mutable module values remain quiet`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "quiet-mutable.fs" ] [ "design" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+        Assert.DoesNotContain(result.Report.Violations, fun violation -> violation.RuleName = "GlobalVariable")
+
+    [<Fact>]
+    let ``npath measures alternatives rather than exponentiating cyclomatic complexity`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "branching.fs" ] [ fixture "npath-ruleset.xml" ] Json)
+
+        Assert.Contains(
+            result.Report.Violations,
+            fun violation ->
+                violation.RuleName = "NPathComplexity"
+                && violation.Description.Contains("NPath complexity 2", StringComparison.Ordinal)
+        )
+
+    [<Fact>]
+    let ``npath counts nested alternatives`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "nested-branching.fs" ] [ fixture "npath-ruleset.xml" ] Json)
+
+        Assert.Contains(
+            result.Report.Violations,
+            fun violation ->
+                violation.RuleName = "NPathComplexity"
+                && violation.Description.Contains("NPath complexity 3", StringComparison.Ordinal)
+        )
+
+    [<Fact>]
+    let ``variable casing checks functions as well as values`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "bad.fs" ] [ "controversial" ] Json)
+
+        Assert.Contains(
+            result.Report.Violations,
+            fun violation ->
+                violation.RuleName = "CamelCaseVariableName"
+                && violation.Description.Contains("BadFunction", StringComparison.Ordinal)
+        )

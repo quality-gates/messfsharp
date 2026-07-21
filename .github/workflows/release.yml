@@ -1,7 +1,6 @@
 name: Release
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - 'v*.*.*'
@@ -61,9 +60,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/messfsharp-tool"
           package="artifacts/packages/messfsharp.${{ steps.version.outputs.version }}.nupkg"
           dotnet tool install --tool-path "$RUNNER_TEMP/messfsharp-tool" --add-source artifacts/packages messfsharp --version "${{ steps.version.outputs.version }}"
-          "$RUNNER_TEMP/messfsharp-tool/messfsharp" --version
+          actual_version="$("$RUNNER_TEMP/messfsharp-tool/messfsharp" --version)"
+          test "$actual_version" = "messfsharp ${{ steps.version.outputs.version }}"
           "$RUNNER_TEMP/messfsharp-tool/messfsharp" tests/Fixtures/clean.fs json fsharp --reportfile "$RUNNER_TEMP/smoke.json"
-          grep -q '"version"' "$RUNNER_TEMP/smoke.json"
+          jq -e --arg expected "${{ steps.version.outputs.version }}" '.tool == "messfsharp" and .version == $expected and (.errors | length == 0)' "$RUNNER_TEMP/smoke.json" >/dev/null
           test -s "$package"
 
       - name: Create checksums

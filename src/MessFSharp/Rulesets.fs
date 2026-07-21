@@ -188,11 +188,35 @@ module Rulesets =
     let private definition (name: string) =
         Rules.byName |> Map.tryFind (name.ToLowerInvariant())
 
+    let private tryProperty (properties: Map<string, string>) name =
+        properties
+        |> Seq.tryPick (fun item ->
+            if String.Equals(item.Key, name, StringComparison.OrdinalIgnoreCase) then
+                Some item.Value
+            else
+                None)
+
     let private selection (rulesetName: string) (rule: RuleImplementation) priority properties =
+        let mergedProperties =
+            Map.fold (fun current key value -> Map.add key value current) rule.DefaultProperties properties
+
+        let mergedProperties =
+            match tryProperty properties "reportLevel" with
+            | Some reportLevel ->
+                [ "maximum"; "minimum"; "maxfields"; "maxmethods" ]
+                |> List.fold
+                    (fun current key ->
+                        if tryProperty properties key |> Option.isSome then
+                            current
+                        else
+                            Map.add key reportLevel current)
+                    mergedProperties
+            | None -> mergedProperties
+
         { Name = rule.Name
           RulesetName = rulesetName
           Priority = defaultArg priority rule.DefaultPriority
-          Properties = Map.fold (fun current key value -> Map.add key value current) rule.DefaultProperties properties }
+          Properties = mergedProperties }
 
     let private expandBuiltIn
         (rulesetName: string)

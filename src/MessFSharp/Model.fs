@@ -7,6 +7,7 @@ open Domain
 
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessivePublicCount")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "TooManyMethods")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "TooManyPublicMethods")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "CyclomaticComplexity")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "NPathComplexity")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveMethodLength")>]
@@ -356,6 +357,25 @@ module Model =
         |> Array.filter (fun token -> token.Text = name && token.Line >= startLine && token.Line <= endLine)
         |> Array.length
 
+    let private referenceScope (declarations: Declaration list) (declaration: Declaration) sourceLineCount =
+        if
+            declaration.Kind = Parameter
+            || ((declaration.Kind = Value || declaration.Kind = Function)
+                && not declaration.IsModuleLevel)
+        then
+            declarations
+            |> List.filter (fun candidate ->
+                (candidate.Kind = Function || candidate.Kind = Member)
+                && candidate.Location.StartLine < declaration.Location.StartLine
+                && candidate.ScopeStartLine <= declaration.Location.StartLine
+                && candidate.ScopeEndLine >= declaration.Location.StartLine)
+            |> List.sortByDescending (fun candidate -> candidate.Location.StartLine)
+            |> List.tryHead
+            |> Option.map (fun enclosing -> enclosing.ScopeStartLine, enclosing.ScopeEndLine)
+            |> Option.defaultValue (declaration.ScopeStartLine, declaration.ScopeEndLine)
+        else
+            1, sourceLineCount
+
     let private complexity (tokens: SyntaxToken array) startLine endLine =
         let within token =
             token.Line >= startLine && token.Line <= endLine
@@ -390,16 +410,153 @@ module Model =
              + max 0 (caseBranches - matchBranches)
              + shortCircuitBranches)
 
-    let private nPath complexityValue =
-        let mutable result = 1L
+    let private nPath (tokens: SyntaxToken array) startLine endLine =
+        let within token =
+            token.Line >= startLine && token.Line <= endLine
 
-        for _ in 1 .. min 30 complexityValue do
-            result <- min Int64.MaxValue (result * 2L)
+        let scopedTokens = tokens |> Array.filter within
 
-        if result > int64 Int32.MaxValue then
-            Int32.MaxValue
-        else
-            int result
+        let count tokenText =
+            scopedTokens
+            |> Array.sumBy (fun token -> if token.Text = tokenText then 1 else 0)
+
+        let multiply left right =
+            if right > 0 && left > Int32.MaxValue / right then
+                Int32.MaxValue
+            else
+                left * right
+
+        let add left right =
+            if right > Int32.MaxValue - left then
+                Int32.MaxValue
+            else
+                left + right
+
+        let powerOfTwo exponent =
+            [ 1..exponent ] |> List.fold (fun value _ -> multiply value 2) 1
+
+        let ifStarts = ResizeArray<int>()
+        let ifThens = ResizeArray<int option>()
+        let ifElses = ResizeArray<int option>()
+        let stack = ResizeArray<int>()
+
+        let findTopmost predicate =
+            let mutable position = stack.Count - 1
+            let mutable found = None
+
+            while position >= 0 && found.IsNone do
+                let candidate = stack[position]
+
+                if predicate candidate then
+                    found <- Some(position, candidate)
+                else
+                    position <- position - 1
+
+            found
+
+        for index in 0 .. scopedTokens.Length - 1 do
+            match scopedTokens[index].Text with
+            | "if" ->
+                ifStarts.Add(index)
+                ifThens.Add(None)
+                ifElses.Add(None)
+                stack.Add(ifStarts.Count - 1)
+            | "then" ->
+                match findTopmost (fun candidate -> ifThens[candidate].IsNone) with
+                | Some(_, candidate) -> ifThens[candidate] <- Some index
+                | None -> ()
+            | "else" ->
+                match
+                    findTopmost (fun candidate ->
+                        ifThens[candidate].IsSome
+                        && ifElses[candidate].IsNone
+                        && scopedTokens[ifStarts[candidate]].Column <= scopedTokens[index].Column)
+                with
+                | Some(stackPosition, candidate) ->
+                    ifElses[candidate] <- Some index
+                    stack.RemoveAt(stackPosition)
+                | None -> ()
+            | _ -> ()
+
+        let findEnd startIndex anchorIndex =
+            let startColumn = scopedTokens[startIndex].Column
+            let anchorLine = scopedTokens[anchorIndex].Line
+            let mutable index = anchorIndex + 1
+            let mutable result = scopedTokens.Length
+
+            while index < scopedTokens.Length && result = scopedTokens.Length do
+                let token = scopedTokens[index]
+
+                if token.Text = ";" || (token.Line > anchorLine && token.Column <= startColumn) then
+                    result <- index
+                else
+                    index <- index + 1
+
+            result
+
+        let decisions =
+            [ 0 .. ifStarts.Count - 1 ]
+            |> List.choose (fun index ->
+                match ifThens[index] with
+                | Some thenIndex ->
+                    let anchorIndex = defaultArg ifElses[index] thenIndex
+
+                    Some(ifStarts[index], thenIndex, ifElses[index], findEnd ifStarts[index] anchorIndex)
+                | None -> None)
+
+        let rec paths startIndex endExclusive =
+            let topLevelDecisions =
+                decisions
+                |> List.filter (fun decision ->
+                    let decisionStartIndex, _, _, decisionEndExclusive = decision
+
+                    decisionStartIndex >= startIndex
+                    && decisionStartIndex < endExclusive
+                    && not (
+                        decisions
+                        |> List.exists (fun parent ->
+                            let parentStartIndex, _, _, parentEndExclusive = parent
+
+                            parentStartIndex >= startIndex
+                            && parentStartIndex < decisionStartIndex
+                            && parentEndExclusive > decisionStartIndex
+                            && parentEndExclusive <= endExclusive)
+                    ))
+
+            topLevelDecisions
+            |> List.fold
+                (fun result decision ->
+                    let _decisionStartIndex, thenIndex, elseIndex, decisionEndExclusive = decision
+                    let thenEnd = defaultArg elseIndex decisionEndExclusive
+                    let thenPaths = paths (thenIndex + 1) thenEnd
+
+                    let elsePaths =
+                        elseIndex
+                        |> Option.map (fun elseIndex -> paths (elseIndex + 1) decisionEndExclusive)
+                        |> Option.defaultValue 1
+
+                    multiply result (add thenPaths elsePaths))
+                1
+
+        let binaryDecisions =
+            count "for"
+            + count "while"
+            + count "try"
+            + count "when"
+            + count "&&"
+            + count "||"
+
+        let ifPaths =
+            if List.isEmpty decisions then
+                1
+            else
+                paths 0 scopedTokens.Length
+
+        let matchCount = count "match"
+        let matchCases = count "|"
+        let matchPaths = if matchCount = 0 then 1 else max matchCount matchCases
+
+        multiply (multiply ifPaths (powerOfTwo binaryDecisions)) matchPaths
 
     let private lineCount startLine endLine = max 1 (endLine - startLine + 1)
 
@@ -408,7 +565,6 @@ module Model =
 
         for lineNumber in 1 .. source.Lines.Length do
             let line = source.Lines[lineNumber - 1]
-            let trimmed = line.Trim()
             let indent = indentation line
 
             let add
@@ -870,6 +1026,15 @@ module Model =
             |> List.map (fun declaration -> declaration.Name, tokenCount tokens declaration.Name 1 source.Lines.Length)
             |> Map.ofList
 
+        let referenceCountsByDeclaration =
+            declarations
+            |> List.map (fun declaration ->
+                let startLine, endLine = referenceScope declarations declaration source.Lines.Length
+
+                (declaration.Name, declaration.Location.StartLine),
+                tokenCount tokens declaration.Name startLine endLine)
+            |> Map.ofList
+
         let mutatedNames =
             tokens
             |> Array.windowed 2
@@ -896,7 +1061,11 @@ module Model =
             |> Map.ofList
 
         let nPathByDeclaration =
-            complexityByDeclaration |> Map.map (fun _ value -> nPath value)
+            measuredDeclarations
+            |> List.map (fun declaration ->
+                (declaration.Name, declaration.Location.StartLine),
+                nPath tokens declaration.BodyStartLine declaration.BodyEndLine)
+            |> Map.ofList
 
         let lineCountByDeclaration =
             measuredDeclarations
@@ -924,6 +1093,7 @@ module Model =
           NPathByDeclaration = nPathByDeclaration
           LineCountByDeclaration = lineCountByDeclaration
           ReferenceCounts = referenceCounts
+          ReferenceCountsByDeclaration = referenceCountsByDeclaration
           MutatedNames = mutatedNames
           TypeFields = typeFields
           TypeMethods = typeMethods }

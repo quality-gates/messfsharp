@@ -3,6 +3,10 @@ module Bad
 let unused = 1
 let mutable globalState = 0
 
+let updateGlobalState () = globalState <- globalState + 1
+
+let BadFunction value = value
+
 let thisIsAnExtremelyLongLocalBindingNameThatNeedsAttention = globalState + 1
 
 let branching value =

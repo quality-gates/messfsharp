@@ -53,6 +53,9 @@ jobs:
           tests/Fixtures/signature.fsi
           tests/Fixtures/script.fsx
           tests/Fixtures/suppressed.fs
+          tests/Fixtures/quiet-mutable.fs
+          tests/Fixtures/branching.fs
+          tests/Fixtures/nested-branching.fs
 
       - name: Build with warnings as errors
         run: dotnet build messfsharp.sln --configuration Release --no-restore -warnaserror

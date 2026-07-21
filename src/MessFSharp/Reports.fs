@@ -77,9 +77,9 @@ module Reports =
 
     let private contextValue context =
         {| ``namespace`` = context.Namespace
-           moduleName = context.Module
-           typeName = context.Type
-           memberName = context.Member |}
+           ``module`` = context.Module
+           ``type`` = context.Type
+           ``member`` = context.Member |}
 
     let private jsonValue report =
         let violations =
@@ -201,6 +201,12 @@ module Reports =
     let private renderHtml report =
         let encode = System.Net.WebUtility.HtmlEncode
         let builder = StringBuilder()
+
+        let contextText context =
+            [ context.Namespace; context.Module; context.Type; context.Member ]
+            |> List.choose id
+            |> String.concat "."
+
         builder.AppendLine("<!doctype html>") |> ignore
 
         builder.AppendLine(
@@ -210,21 +216,32 @@ module Reports =
 
         builder.AppendLine(
             sprintf
-                "<h1>messfsharp %s</h1><table><thead><tr><th>File</th><th>Line</th><th>Rule</th><th>Priority</th><th>Description</th></tr></thead><tbody>"
+                "<h1>messfsharp %s</h1><table><thead><tr><th>File</th><th>Start</th><th>End</th><th>Rule</th><th>Ruleset</th><th>Priority</th><th>Context</th><th>Description</th><th>Help</th></tr></thead><tbody>"
                 (encode report.Version)
         )
         |> ignore
 
         for violation in sortedViolations report do
+            let help =
+                violation.HelpUri
+                |> Option.map (fun uri -> sprintf "<a href=\"%s\">%s</a>" (encode uri) (encode uri))
+                |> Option.defaultValue ""
+
             builder.AppendLine(
                 sprintf
-                    "<tr class=\"p%d\"><td>%s</td><td>%d</td><td>%s</td><td>%d</td><td>%s</td></tr>"
+                    "<tr class=\"p%d\"><td>%s</td><td>%d:%d</td><td>%d:%d</td><td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td><td>%s</td></tr>"
                     violation.Priority
                     (encode violation.Location.File)
                     violation.Location.StartLine
+                    violation.Location.StartColumn
+                    violation.Location.EndLine
+                    violation.Location.EndColumn
                     (encode violation.RuleName)
+                    (encode violation.RulesetName)
                     violation.Priority
+                    (encode (contextText violation.Context))
                     (encode violation.Description)
+                    help
             )
             |> ignore
 
@@ -234,10 +251,16 @@ module Reports =
             builder.AppendLine("<h2>Processing errors</h2><ul>") |> ignore
 
             for error in sortedErrors report do
+                let location =
+                    error.Location
+                    |> Option.map (fun item -> sprintf ":%d:%d" item.StartLine item.StartColumn)
+                    |> Option.defaultValue ""
+
                 builder.AppendLine(
                     sprintf
-                        "<li>%s: %s</li>"
+                        "<li>%s%s: %s</li>"
                         (encode (error.File |> Option.defaultValue "messfsharp"))
+                        location
                         (encode error.Message)
                 )
                 |> ignore
