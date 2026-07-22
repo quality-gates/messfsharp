@@ -122,7 +122,7 @@ module AcceptanceTests =
 
         let version = PackagedTool.run [ "--version" ]
         Assert.Equal(0, version.ExitCode)
-        Assert.Equal("messfsharp 0.1.0" + newline, version.StandardOutput)
+        Assert.Equal("messfsharp " + Program.version + newline, version.StandardOutput)
         Assert.Equal("", version.StandardError)
 
     [<Fact>]
