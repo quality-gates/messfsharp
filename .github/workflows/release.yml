@@ -93,12 +93,24 @@ jobs:
             candidate_entries="$RUNNER_TEMP/candidate-entries.txt"
             published_entries="$RUNNER_TEMP/published-entries.txt"
 
-            unzip -Z1 "$candidate" | grep -v '^\.signature\.p7s$' | sort > "$candidate_entries"
-            unzip -Z1 "$published" | grep -v '^\.signature\.p7s$' | sort > "$published_entries"
+            # NuGet assigns a fresh core-properties ID on each pack, and writes
+            # it into the package relationship file. Compare the reproducible
+            # payload rather than those archive-generation details.
+            unzip -Z1 "$candidate" | rg -v '^(_rels/\.rels|package/services/metadata/core-properties/.*\.psmdcp|\.signature\.p7s)$' | sort > "$candidate_entries"
+            unzip -Z1 "$published" | rg -v '^(_rels/\.rels|package/services/metadata/core-properties/.*\.psmdcp|\.signature\.p7s)$' | sort > "$published_entries"
             cmp "$candidate_entries" "$published_entries"
 
             while IFS= read -r entry; do
-              cmp <(unzip -p "$candidate" "$entry") <(unzip -p "$published" "$entry")
+              # unzip's file arguments are patterns, even when shell-quoted.
+              # Escape the pattern metacharacters so every archive entry is
+              # compared by its literal name (notably [Content_Types].xml).
+              local literal_entry="$entry"
+              literal_entry="${literal_entry//\\/\\\\}"
+              literal_entry="${literal_entry//\[/\\[}"
+              literal_entry="${literal_entry//\]/\\]}"
+              literal_entry="${literal_entry//\*/\\*}"
+              literal_entry="${literal_entry//\?/\\?}"
+              cmp <(unzip -p "$candidate" "$literal_entry") <(unzip -p "$published" "$literal_entry")
             done < "$candidate_entries"
           }
 
