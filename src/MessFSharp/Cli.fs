@@ -31,8 +31,8 @@ Options:
   --ignore-tests                 Skip common test files and directories.
   --strict                       Include findings with source suppressions.
   --color                        Colorize text output when appropriate.
-  --verbose                      Include diagnostic rule-loading warnings.
-  -v, --version                  Print the installed version.
+  --verbose, -v                  Include diagnostic rule-loading warnings.
+  --version                      Print the installed version.
   --help, -h, help               Print this help.
   --ignore-errors-on-exit        Do not return 1 for processing errors.
   --ignore-violations-on-exit    Do not return 2 for violations.
@@ -81,7 +81,7 @@ Options:
             |> Array.exists (fun argument -> argument = "--help" || argument = "-h" || argument = "help")
         then
             Help
-        elif argv |> Array.exists (fun argument -> argument = "--version" || argument = "-v") then
+        elif argv |> Array.exists (fun argument -> argument = "--version") then
             Version
         elif argv.Length = 0 then
             Invalid "No arguments supplied."
@@ -209,7 +209,8 @@ Options:
                         | "--ignore-tests" -> continueWith { options with IgnoreTests = true } (index + 1)
                         | "--strict" -> continueWith { options with Strict = true } (index + 1)
                         | "--color" -> continueWith { options with Color = true } (index + 1)
-                        | "--verbose" -> continueWith { options with Verbose = true } (index + 1)
+                        | "--verbose"
+                        | "-v" -> continueWith { options with Verbose = true } (index + 1)
                         | "--ignore-errors-on-exit" ->
                             continueWith
                                 { options with

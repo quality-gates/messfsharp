@@ -3,6 +3,7 @@ namespace MessFSharp
 open System
 open System.Collections.Generic
 open System.Text.RegularExpressions
+open FSharp.Compiler.Syntax
 open Domain
 
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessivePublicCount")>]
@@ -481,6 +482,12 @@ module Model =
           IsRecord = isRecord
           IsUnion = isUnion
           IsClassLike = isClassLike
+          IsInterface = false
+          TypeShape =
+            if isRecord then RecordType
+            elif isUnion then UnionType
+            elif isClassLike then ClassType
+            else NotAType
           IsFunction = isFunction
           IsModuleLevel = isModuleLevel
           IsBoolean = isBooleanText text
@@ -1436,13 +1443,157 @@ module Model =
                         ParentKind = Some parent.Kind
                         IsModuleLevel = declaration.IsModuleLevel })
 
-    let analyze (source: SourceFile) =
+    let private applyCompilerTypeShapes (facts: SyntaxModel.Facts) (declarations: Declaration list) =
+        declarations
+        |> List.map (fun declaration ->
+            if declaration.Kind <> Type then
+                declaration
+            else
+                facts.Declarations
+                |> List.tryFind (fun fact ->
+                    fact.Name = declaration.Name
+                    && fact.Location.StartLine = declaration.Location.StartLine
+                    && match fact.Kind with
+                       | SyntaxModel.TypeFact _ -> true
+                       | _ -> false)
+                |> Option.map (fun fact ->
+                    let shape =
+                        match fact.Kind with
+                        | SyntaxModel.TypeFact value -> value
+                        | _ -> declaration.TypeShape
+
+                    { declaration with
+                        Location = fact.Location
+                        ScopeStartLine = fact.Location.StartLine
+                        ScopeEndLine = fact.Location.EndLine
+                        BodyStartLine = fact.Location.StartLine
+                        BodyEndLine = fact.Location.EndLine
+                        IsRecord = shape = RecordType
+                        IsUnion = shape = UnionType
+                        IsClassLike = shape = ClassType
+                        IsInterface = shape = InterfaceType
+                        TypeShape = shape })
+                |> Option.defaultValue declaration)
+
+    let private addCompilerBindings source (facts: SyntaxModel.Facts) (declarations: Declaration list) =
+        let result = ResizeArray<Declaration>(declarations :> seq<Declaration>)
+
+        for fact in facts.Declarations do
+            match fact.Kind with
+            | SyntaxModel.BindingFact when
+                result
+                |> Seq.exists (fun declaration ->
+                    declaration.Name = fact.Name
+                    && declaration.Location.StartLine = fact.Location.StartLine
+                    && (declaration.Kind = Function || declaration.Kind = Value))
+                |> not
+                ->
+                let parent = nearestParent (result |> Seq.toList) fact.Location.StartLine
+                let isFunction = fact.ParameterCount > 0
+
+                result.Add(
+                    makeDeclaration
+                        source
+                        fact.Name
+                        (if isFunction then Function else Value)
+                        fact.Location.StartLine
+                        fact.Location.StartColumn
+                        (parent |> Option.map (fun item -> item.Name))
+                        (parent |> Option.map (fun item -> item.Kind))
+                        ""
+                        fact.IsMutable
+                        false
+                        (isLiteralDeclaration source.Lines fact.Location.StartLine)
+                        false
+                        false
+                        false
+                        isFunction
+                        (parent |> Option.forall (fun item -> item.Kind <> Type))
+                        fact.ParameterCount
+                        fact.Location.StartLine
+                        fact.Location.EndLine
+                        fact.Location.StartLine
+                        fact.Location.EndLine
+                        (sourceText source fact.Location.StartLine fact.Location.EndLine)
+                )
+            | _ -> ()
+
+        result |> Seq.toList
+
+    let private addCompilerParameters source (facts: SyntaxModel.Facts) (declarations: Declaration list) =
+        let result = ResizeArray<Declaration>(declarations :> seq<Declaration>)
+
+        for fact in facts.Declarations do
+            match fact.Kind with
+            | SyntaxModel.BindingFact ->
+                let owner =
+                    result
+                    |> Seq.tryFind (fun declaration ->
+                        declaration.Name = fact.Name
+                        && declaration.Location.StartLine = fact.Location.StartLine
+                        && (declaration.Kind = Function || declaration.Kind = Value))
+
+                for name, parameterLocation in fact.Parameters do
+                    let alreadyModeled =
+                        result
+                        |> Seq.exists (fun declaration ->
+                            declaration.Kind = Parameter
+                            && declaration.Name = name
+                            && declaration.Parent = Some fact.Name
+                            && declaration.Location.StartLine = parameterLocation.StartLine)
+
+                    match owner with
+                    | Some declaration when not alreadyModeled ->
+                        let parameter =
+                            makeDeclaration
+                                source
+                                name
+                                Parameter
+                                parameterLocation.StartLine
+                                parameterLocation.StartColumn
+                                (Some declaration.Name)
+                                (Some declaration.Kind)
+                                ""
+                                false
+                                false
+                                false
+                                false
+                                false
+                                false
+                                false
+                                false
+                                0
+                                declaration.ScopeStartLine
+                                declaration.ScopeEndLine
+                                declaration.BodyStartLine
+                                declaration.BodyEndLine
+                                (sourceText source parameterLocation.StartLine parameterLocation.EndLine)
+
+                        result.Add(
+                            { parameter with
+                                Location = parameterLocation }
+                        )
+                    | _ -> ()
+            | _ -> ()
+
+        result |> Seq.toList
+
+    let analyze (source: SourceFile) (parsedInput: ParsedInput) =
         let tokens = Scanner.scan source
-        let baseDeclarations = buildBaseDeclarations source
+        let syntaxFacts = SyntaxModel.normalize source.FullPath parsedInput
+
+        let baseDeclarations =
+            buildBaseDeclarations source
+            |> applyCompilerTypeShapes syntaxFacts
+            |> addCompilerBindings source syntaxFacts
+
         let withConstructors = addConstructors source baseDeclarations
         let withCases = addUnionCases source withConstructors
         let withFields = addFields source withCases
-        let withParameters = addParameters source withFields
+
+        let withParameters =
+            addParameters source withFields |> addCompilerParameters source syntaxFacts
+
         let declarations = applyParents withParameters
 
         let referenceCounts =
@@ -1518,4 +1669,7 @@ module Model =
           ReferenceCountsByDeclaration = referenceCountsByDeclaration
           MutatedNames = mutatedNames
           TypeFields = typeFields
-          TypeMethods = typeMethods }
+          TypeMethods = typeMethods
+          Expressions = syntaxFacts.Expressions
+          LexicalScopes = syntaxFacts.LexicalScopes
+          SyntacticReferences = syntaxFacts.References }

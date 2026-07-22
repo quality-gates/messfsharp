@@ -165,7 +165,7 @@ module Engine =
                         | Error errors ->
                             for error in errors do
                                 processingErrors.Add(error)
-                        | Ok() -> analyzedFiles.Add(Model.analyze source)
+                        | Ok parsedInput -> analyzedFiles.Add(Model.analyze source parsedInput)
 
                 let violations = ResizeArray<Violation>()
 

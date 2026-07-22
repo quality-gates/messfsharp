@@ -55,11 +55,11 @@ Options:
   `SuppressMessage` metadata. Without it, those intentional exceptions are
   omitted.
 - `--color` colorizes text, `ansi` always emits ANSI styling, and `--verbose`
-  prints ruleset diagnostics.
+  or `-v` prints ruleset diagnostics.
 - `--ignore-errors-on-exit` and `--ignore-violations-on-exit` change only the
   final process code; report content is unchanged.
 
-`--help`, `-h`, and `help` print usage. `--version` and `-v` print
+`--help`, `-h`, and `help` print usage. `--version` prints
 `messfsharp <version>`.
 
 ## Exit codes

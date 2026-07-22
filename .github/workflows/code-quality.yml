@@ -33,37 +33,10 @@ jobs:
         run: dotnet restore messfsharp.sln --locked-mode
 
       - name: Check F# formatting
-        run: >-
-          dotnet tool run fantomas --check
-          src/MessFSharp/Domain.fs
-          src/MessFSharp/Discovery.fs
-          src/MessFSharp/Scanner.fs
-          src/MessFSharp/Parsing.fs
-          src/MessFSharp/Model.fs
-          src/MessFSharp/Rules.fs
-          src/MessFSharp/Rulesets.fs
-          src/MessFSharp/Reports.fs
-          src/MessFSharp/Engine.fs
-          src/MessFSharp/Cli.fs
-          src/MessFSharp/Program.fs
-          tests/MessFSharp.Tests/AnalyzerTests.fs
-          tests/MessFSharp.Tests/CliTests.fs
-          tests/Fixtures/clean.fs
-          tests/Fixtures/bad.fs
-          tests/Fixtures/signature.fsi
-          tests/Fixtures/script.fsx
-          tests/Fixtures/suppressed.fs
-          tests/Fixtures/quiet-mutable.fs
-          tests/Fixtures/branching.fs
-          tests/Fixtures/nested-branching.fs
-          tests/Fixtures/constructor.fs
-          tests/Fixtures/edge-cases.fs
-          tests/Fixtures/exit-cases.fs
-          tests/Fixtures/multiple-matches.fs
-          tests/Fixtures/namespace.fs
-          tests/Fixtures/pattern-parameters.fs
-          tests/Fixtures/private-declarations.fs
-          tests/Fixtures/shadowed-bindings.fs
+        shell: bash
+        run: |
+          readarray -t files < <(git ls-files '*.fs' '*.fsi' '*.fsx' ':!tests/Fixtures/invalid.fs')
+          dotnet tool run fantomas --check "${files[@]}"
 
       - name: Build with warnings as errors
         run: dotnet build messfsharp.sln --configuration Release --no-restore -warnaserror

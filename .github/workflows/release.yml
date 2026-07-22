@@ -52,7 +52,17 @@ jobs:
           src/MessFSharp text fsharp,codesize,design --ignore-tests
 
       - name: Pack
-        run: dotnet pack src/MessFSharp/MessFSharp.fsproj --configuration Release --no-build --no-restore -p:PackageVersion=${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          dotnet pack src/MessFSharp/MessFSharp.fsproj --configuration Release --no-build --no-restore -p:PackageVersion=${{ steps.version.outputs.version }}
+          package="artifacts/packages/messfsharp.${{ steps.version.outputs.version }}.nupkg"
+          unzip -p "$package" messfsharp.nuspec > "$RUNNER_TEMP/messfsharp.nuspec"
+          grep -F '<id>messfsharp</id>' "$RUNNER_TEMP/messfsharp.nuspec"
+          grep -F '<version>${{ steps.version.outputs.version }}</version>' "$RUNNER_TEMP/messfsharp.nuspec"
+          grep -F '<license type="expression">MIT</license>' "$RUNNER_TEMP/messfsharp.nuspec"
+          grep -F '<readme>README.md</readme>' "$RUNNER_TEMP/messfsharp.nuspec"
+          unzip -l "$package" | grep -F 'tools/net10.0/any/DotnetToolSettings.xml'
+          unzip -l "$package" | grep -F 'README.md'
 
       - name: Install and smoke-test exact package
         shell: bash
@@ -74,19 +84,75 @@ jobs:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         shell: bash
         run: |
+          package="artifacts/packages/messfsharp.${{ steps.version.outputs.version }}.nupkg"
+
+          compare_package_contents() {
+            local candidate="$1"
+            local published="$2"
+            local candidate_entries published_entries
+            candidate_entries="$RUNNER_TEMP/candidate-entries.txt"
+            published_entries="$RUNNER_TEMP/published-entries.txt"
+
+            # NuGet assigns a fresh core-properties ID on each pack, and writes
+            # it into the package relationship file. Compare the reproducible
+            # payload rather than those archive-generation details.
+            unzip -Z1 "$candidate" | rg -v '^(_rels/\.rels|package/services/metadata/core-properties/.*\.psmdcp|\.signature\.p7s)$' | sort > "$candidate_entries"
+            unzip -Z1 "$published" | rg -v '^(_rels/\.rels|package/services/metadata/core-properties/.*\.psmdcp|\.signature\.p7s)$' | sort > "$published_entries"
+            cmp "$candidate_entries" "$published_entries"
+
+            while IFS= read -r entry; do
+              # unzip's file arguments are patterns, even when shell-quoted.
+              # Escape the pattern metacharacters so every archive entry is
+              # compared by its literal name (notably [Content_Types].xml).
+              local literal_entry="$entry"
+              literal_entry="${literal_entry//\\/\\\\}"
+              literal_entry="${literal_entry//\[/\\[}"
+              literal_entry="${literal_entry//\]/\\]}"
+              literal_entry="${literal_entry//\*/\\*}"
+              literal_entry="${literal_entry//\?/\\?}"
+              cmp <(unzip -p "$candidate" "$literal_entry") <(unzip -p "$published" "$literal_entry")
+            done < "$candidate_entries"
+          }
+
           if [[ -n "$NUGET_API_KEY" ]]; then
-            dotnet nuget push artifacts/packages/messfsharp.${{ steps.version.outputs.version }}.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+            published="$RUNNER_TEMP/published.nupkg"
+            url="https://api.nuget.org/v3-flatcontainer/messfsharp/${{ steps.version.outputs.version }}/messfsharp.${{ steps.version.outputs.version }}.nupkg"
+
+            if ! status="$(curl --silent --show-error --location --output "$published" --write-out '%{http_code}' "$url")"; then
+              echo "Could not determine whether this NuGet version is already published."
+              exit 1
+            fi
+
+            if [[ "$status" == "200" ]]; then
+              compare_package_contents "$package" "$published"
+              echo "The identical package is already published."
+            elif [[ "$status" == "404" ]]; then
+              dotnet nuget push "$package" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
+            else
+              echo "NuGet returned unexpected status $status while checking the existing package."
+              exit 1
+            fi
           else
             echo "NUGET_API_KEY is not provisioned; keeping publication gated after verification."
           fi
 
-      - name: Create immutable GitHub release
+      - name: Create or verify immutable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "$GITHUB_REF_NAME"
-          artifacts/packages/messfsharp.${{ steps.version.outputs.version }}.nupkg
-          artifacts/packages/SHA256SUMS
-          --verify-tag
-          --title "$GITHUB_REF_NAME"
-          --notes-file CHANGELOG.md
+        shell: bash
+        run: |
+          package="artifacts/packages/messfsharp.${{ steps.version.outputs.version }}.nupkg"
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            mkdir -p "$RUNNER_TEMP/existing-release"
+            gh release download "$GITHUB_REF_NAME" --pattern "messfsharp.${{ steps.version.outputs.version }}.nupkg" --dir "$RUNNER_TEMP/existing-release"
+            cmp "$package" "$RUNNER_TEMP/existing-release/$(basename "$package")"
+            echo "The existing release contains the identical verified package."
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              "$package" \
+              artifacts/packages/SHA256SUMS \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file CHANGELOG.md
+          fi

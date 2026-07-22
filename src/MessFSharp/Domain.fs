@@ -66,6 +66,40 @@ module Domain =
         | Parameter
         | Constructor
 
+    type TypeShape =
+        | NotAType
+        | ClassType
+        | RecordType
+        | UnionType
+        | InterfaceType
+        | StructType
+        | TypeAbbreviation
+        | OtherType
+
+    type ExpressionKind =
+        | OrdinaryExpression
+        | ApplicationExpression
+        | ConditionalExpression
+        | MatchExpression
+        | MatchClauseExpression
+        | LoopExpression
+        | ExceptionHandlerExpression
+        | LambdaExpression
+        | ComputationExpression
+        | AssignmentExpression
+
+    type NormalizedExpression =
+        { Kind: ExpressionKind
+          Location: SourceLocation }
+
+    type LexicalScope =
+        { Location: SourceLocation
+          Parent: SourceLocation option }
+
+    type SyntacticReference =
+        { Name: string
+          Location: SourceLocation }
+
     type Declaration =
         { Name: string
           Kind: DeclarationKind
@@ -83,6 +117,8 @@ module Domain =
           IsRecord: bool
           IsUnion: bool
           IsClassLike: bool
+          IsInterface: bool
+          TypeShape: TypeShape
           IsFunction: bool
           IsModuleLevel: bool
           IsBoolean: bool
@@ -105,7 +141,10 @@ module Domain =
           ReferenceCountsByDeclaration: Map<string * int, int>
           MutatedNames: Set<string>
           TypeFields: Map<string, Declaration list>
-          TypeMethods: Map<string, Declaration list> }
+          TypeMethods: Map<string, Declaration list>
+          Expressions: NormalizedExpression list
+          LexicalScopes: LexicalScope list
+          SyntacticReferences: SyntacticReference list }
 
     type SymbolContext =
         { Namespace: string option

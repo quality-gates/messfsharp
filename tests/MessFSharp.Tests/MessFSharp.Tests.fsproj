@@ -19,5 +19,8 @@
   <ItemGroup>
     <Compile Include="CliTests.fs" />
     <Compile Include="AnalyzerTests.fs" />
+    <Compile Include="CatalogTests.fs" />
+    <Compile Include="ReporterTests.fs" />
+    <Compile Include="AcceptanceTests.fs" />
   </ItemGroup>
 </Project>

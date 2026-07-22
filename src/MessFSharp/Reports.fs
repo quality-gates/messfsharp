@@ -340,6 +340,12 @@ module Reports =
         sha.ComputeHash(Encoding.UTF8.GetBytes(value)) |> Convert.ToHexString
 
     let private renderGitLab report =
+        let emptyContext =
+            {| ``namespace`` = (None: string option)
+               ``module`` = (None: string option)
+               ``type`` = (None: string option)
+               ``member`` = (None: string option) |}
+
         let findings =
             sortedViolations report
             |> List.map (fun violation ->
@@ -347,11 +353,24 @@ module Reports =
                    check_name = violation.RuleName
                    fingerprint = fingerprint violation
                    severity = severity violation.Priority
+                   tool = report.ToolName
+                   version = report.Version
+                   ruleset = violation.RulesetName
+                   priority = violation.Priority
+                   context = contextValue violation.Context
+                   help_uri = violation.HelpUri
                    location =
                     {| path = violation.Location.File
                        lines =
                         {| ``begin`` = violation.Location.StartLine
-                           ``end`` = violation.Location.EndLine |} |} |})
+                           ``end`` = violation.Location.EndLine |}
+                       positions =
+                        {| ``begin`` =
+                            {| line = violation.Location.StartLine
+                               column = violation.Location.StartColumn |}
+                           ``end`` =
+                            {| line = violation.Location.EndLine
+                               column = violation.Location.EndColumn |} |} |} |})
             |> ResizeArray
 
         for error in sortedErrors report do
@@ -360,6 +379,12 @@ module Reports =
                    check_name = "messfsharp-processing"
                    fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(error.Message)))
                    severity = "critical"
+                   tool = report.ToolName
+                   version = report.Version
+                   ruleset = ""
+                   priority = 1
+                   context = emptyContext
+                   help_uri = None
                    location =
                     {| path = error.File |> Option.defaultValue "messfsharp"
                        lines =
@@ -367,7 +392,23 @@ module Reports =
                             error.Location
                             |> Option.map (fun item -> item.StartLine)
                             |> Option.defaultValue 1
-                           ``end`` = error.Location |> Option.map (fun item -> item.EndLine) |> Option.defaultValue 1 |} |} |}
+                           ``end`` = error.Location |> Option.map (fun item -> item.EndLine) |> Option.defaultValue 1 |}
+                       positions =
+                        {| ``begin`` =
+                            {| line =
+                                error.Location
+                                |> Option.map (fun item -> item.StartLine)
+                                |> Option.defaultValue 1
+                               column =
+                                error.Location
+                                |> Option.map (fun item -> item.StartColumn)
+                                |> Option.defaultValue 1 |}
+                           ``end`` =
+                            {| line = error.Location |> Option.map (fun item -> item.EndLine) |> Option.defaultValue 1
+                               column =
+                                error.Location
+                                |> Option.map (fun item -> item.EndColumn)
+                                |> Option.defaultValue 1 |} |} |} |}
             )
 
         JsonSerializer.Serialize(findings.ToArray(), jsonOptions ())
@@ -376,6 +417,8 @@ module Reports =
     let private renderCheckstyle report =
         let root = XElement(XName.Get "checkstyle")
         root.SetAttributeValue(XName.Get "version", "10.3")
+        root.SetAttributeValue(XName.Get "tool", report.ToolName)
+        root.SetAttributeValue(XName.Get "toolVersion", report.Version)
 
         let grouped =
             sortedViolations report
@@ -389,9 +432,18 @@ module Reports =
                 let error = XElement(XName.Get "error")
                 error.SetAttributeValue(XName.Get "line", violation.Location.StartLine)
                 error.SetAttributeValue(XName.Get "column", violation.Location.StartColumn)
+                error.SetAttributeValue(XName.Get "endLine", violation.Location.EndLine)
+                error.SetAttributeValue(XName.Get "endColumn", violation.Location.EndColumn)
                 error.SetAttributeValue(XName.Get "severity", checkstyleSeverity violation.Priority)
                 error.SetAttributeValue(XName.Get "message", violation.Description)
                 error.SetAttributeValue(XName.Get "source", sprintf "messfsharp.%s" violation.RuleName)
+                error.SetAttributeValue(XName.Get "ruleset", violation.RulesetName)
+                error.SetAttributeValue(XName.Get "priority", violation.Priority)
+                error.SetAttributeValue(XName.Get "namespace", violation.Context.Namespace |> Option.defaultValue "")
+                error.SetAttributeValue(XName.Get "module", violation.Context.Module |> Option.defaultValue "")
+                error.SetAttributeValue(XName.Get "type", violation.Context.Type |> Option.defaultValue "")
+                error.SetAttributeValue(XName.Get "member", violation.Context.Member |> Option.defaultValue "")
+                error.SetAttributeValue(XName.Get "helpUri", violation.HelpUri |> Option.defaultValue "")
                 fileElement.Add(error)
 
             root.Add(fileElement)
@@ -410,6 +462,15 @@ module Reports =
 
             errorElement.SetAttributeValue(XName.Get "severity", "error")
             errorElement.SetAttributeValue(XName.Get "message", error.Message)
+            errorElement.SetAttributeValue(XName.Get "source", "messfsharp.processing")
+
+            match error.Location with
+            | Some location ->
+                errorElement.SetAttributeValue(XName.Get "column", location.StartColumn)
+                errorElement.SetAttributeValue(XName.Get "endLine", location.EndLine)
+                errorElement.SetAttributeValue(XName.Get "endColumn", location.EndColumn)
+            | None -> ()
+
             fileElement.Add(errorElement)
             root.Add(fileElement)
 
@@ -424,10 +485,18 @@ module Reports =
         let rules =
             ruleIds
             |> List.map (fun ruleId ->
+                let sample =
+                    sortedViolations report
+                    |> List.find (fun violation -> violation.RuleName = ruleId)
+
                 {| id = ruleId
                    name = ruleId
                    shortDescription = {| text = sprintf "messfsharp %s" ruleId |}
-                   helpUri = sprintf "https://github.com/quality-gates/messfsharp#%s" (ruleId.ToLowerInvariant()) |})
+                   helpUri =
+                    sample.HelpUri
+                    |> Option.defaultValue (
+                        sprintf "https://github.com/quality-gates/messfsharp#%s" (ruleId.ToLowerInvariant())
+                    ) |})
             |> List.toArray
 
         let results =
@@ -439,6 +508,11 @@ module Reports =
                     else if violation.Priority = 3 then "warning"
                     else "note"
                    message = {| text = violation.Description |}
+                   properties =
+                    {| ruleset = violation.RulesetName
+                       priority = violation.Priority
+                       context = contextValue violation.Context
+                       helpUri = violation.HelpUri |}
                    locations =
                     [| {| physicalLocation =
                            {| artifactLocation = {| uri = violation.Location.File |}
@@ -451,7 +525,22 @@ module Reports =
 
         let notifications =
             sortedErrors report
-            |> List.map (fun error -> {| message = {| text = error.Message |} |})
+            |> List.map (fun error ->
+                let location = error.Location
+
+                {| level = "error"
+                   message = {| text = error.Message |}
+                   locations =
+                    [| {| physicalLocation =
+                           {| artifactLocation = {| uri = error.File |> Option.defaultValue "messfsharp" |}
+                              region =
+                               {| startLine =
+                                   location |> Option.map (fun item -> item.StartLine) |> Option.defaultValue 1
+                                  startColumn =
+                                   location |> Option.map (fun item -> item.StartColumn) |> Option.defaultValue 1
+                                  endLine = location |> Option.map (fun item -> item.EndLine) |> Option.defaultValue 1
+                                  endColumn =
+                                   location |> Option.map (fun item -> item.EndColumn) |> Option.defaultValue 1 |} |} |} |] |})
             |> List.toArray
 
         let driver =

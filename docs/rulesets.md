@@ -43,8 +43,8 @@ The supported rule properties are:
 | `ExcessiveClassComplexity` | `maximum=50`, `reportLevel=50` |
 | `ShortClassName` | `minimum=3` |
 | `LongClassName` | `maximum=40` |
-| `ShortVariable` | `minimum=3`, `ignorepattern=^(x|xs|f|g|_|_.*)$` |
-| `LongVariable` | `maximum=20`, `ignorepattern=^(x|xs|f|g|_|_.*)$` |
+| `ShortVariable` | `minimum=3`, `ignorepattern=^(x|xs|f|g|_|_.*)$`; optional `exceptions`, `subtract-prefixes`, `subtract-suffixes` |
+| `LongVariable` | `maximum=20`, `ignorepattern=^(x|xs|f|g|_|_.*)$`; optional `exceptions`, `subtract-prefixes`, `subtract-suffixes` |
 | `ShortMethodName` | `minimum=3` |
 | `ConstantNamingConventions` | `convention=PascalCase` |
 | `BooleanGetMethodName` | `checkParameterizedMethods=true` |
@@ -56,3 +56,13 @@ The supported rule properties are:
 Rules without a row above have no configurable properties. Property names are
 case-insensitive and values are interpreted according to the rule; unknown
 properties are retained in the selection for forward-compatible custom rules.
+
+`reportLevel` is the compatibility alias shipped alongside the primary numeric
+threshold shown in the table. `ignore-whitespace` chooses whether blank and
+comment-only lines count toward length. `ignorepattern` is a regular expression;
+`exceptions` is a comma- or semicolon-separated exact-name list; and
+`subtract-prefixes` / `subtract-suffixes` remove configured affixes before a
+length check. `convention` accepts PascalCase, camelCase, or uppercase.
+`checkParameterizedMethods` includes boolean members with parameters.
+`unwanted-functions` is a comma-separated conservative marker/call list, and
+`report-immutable=true` broadens `GlobalVariable` beyond observed mutation.

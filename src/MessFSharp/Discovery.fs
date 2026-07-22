@@ -96,7 +96,7 @@ module Discovery =
         let sortedFiles =
             files
             |> Seq.sortWith (fun left right -> StringComparer.Ordinal.Compare(left, right))
-            |> Seq.distinctBy (fun path -> path.ToUpperInvariant())
+            |> Seq.distinct
             |> Seq.toList
 
         sortedFiles, errors |> Seq.toList

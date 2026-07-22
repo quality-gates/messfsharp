@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ruleset name="all-rule-acceptance">
+  <rule name="CyclomaticComplexity"><property name="maximum" value="1" /></rule>
+  <rule name="NPathComplexity"><property name="maximum" value="1" /></rule>
+  <rule name="ExcessiveMethodLength"><property name="minimum" value="0" /></rule>
+  <rule name="ExcessiveClassLength"><property name="minimum" value="0" /></rule>
+  <rule name="ExcessiveParameterList"><property name="maximum" value="0" /></rule>
+  <rule name="ExcessivePublicCount"><property name="maximum" value="0" /></rule>
+  <rule name="TooManyFields"><property name="maxfields" value="0" /></rule>
+  <rule name="TooManyMethods"><property name="maxmethods" value="0" /></rule>
+  <rule name="TooManyPublicMethods"><property name="maxmethods" value="0" /></rule>
+  <rule name="ExcessiveClassComplexity"><property name="maximum" value="0" /></rule>
+  <rule name="ShortClassName"><property name="minimum" value="100" /></rule>
+  <rule name="LongClassName"><property name="maximum" value="1" /></rule>
+  <rule name="ShortVariable"><property name="minimum" value="100" /><property name="ignorepattern" value="^$" /></rule>
+  <rule name="LongVariable"><property name="maximum" value="1" /><property name="ignorepattern" value="^$" /></rule>
+  <rule name="ShortMethodName"><property name="minimum" value="100" /></rule>
+  <rule name="ConstantNamingConventions"><property name="convention" value="uppercase" /></rule>
+  <rule name="BooleanGetMethodName" />
+  <rule name="UnusedPrivateField" />
+  <rule name="UnusedLocalVariable" />
+  <rule name="UnusedPrivateMethod" />
+  <rule name="UnusedFormalParameter" />
+  <rule name="BooleanArgumentFlag" />
+  <rule name="ElseExpression" />
+  <rule name="StaticAccess" />
+  <rule name="IfStatementAssignment" />
+  <rule name="DuplicatedArrayKey" />
+  <rule name="ExitExpression" />
+  <rule name="GotoStatement" />
+  <rule name="CountInLoopExpression" />
+  <rule name="DevelopmentCodeFragment" />
+  <rule name="EmptyCatchBlock" />
+  <rule name="CouplingBetweenObjects"><property name="maximum" value="0" /></rule>
+  <rule name="GlobalVariable"><property name="report-immutable" value="true" /></rule>
+  <rule name="LackOfCohesionOfMethods"><property name="minimum" value="0" /></rule>
+  <rule name="CamelCaseClassName" />
+  <rule name="CamelCaseMethodName" />
+  <rule name="CamelCasePropertyName" />
+  <rule name="CamelCaseParameterName" />
+  <rule name="CamelCaseVariableName" />
+</ruleset>
