@@ -86,34 +86,6 @@ jobs:
         run: |
           package="artifacts/packages/messfsharp.${{ steps.version.outputs.version }}.nupkg"
 
-          compare_package_contents() {
-            local candidate="$1"
-            local published="$2"
-            local candidate_entries published_entries
-            candidate_entries="$RUNNER_TEMP/candidate-entries.txt"
-            published_entries="$RUNNER_TEMP/published-entries.txt"
-
-            # NuGet assigns a fresh core-properties ID on each pack, and writes
-            # it into the package relationship file. Compare the reproducible
-            # payload rather than those archive-generation details.
-            unzip -Z1 "$candidate" | rg -v '^(_rels/\.rels|package/services/metadata/core-properties/.*\.psmdcp|\.signature\.p7s)$' | sort > "$candidate_entries"
-            unzip -Z1 "$published" | rg -v '^(_rels/\.rels|package/services/metadata/core-properties/.*\.psmdcp|\.signature\.p7s)$' | sort > "$published_entries"
-            cmp "$candidate_entries" "$published_entries"
-
-            while IFS= read -r entry; do
-              # unzip's file arguments are patterns, even when shell-quoted.
-              # Escape the pattern metacharacters so every archive entry is
-              # compared by its literal name (notably [Content_Types].xml).
-              local literal_entry="$entry"
-              literal_entry="${literal_entry//\\/\\\\}"
-              literal_entry="${literal_entry//\[/\\[}"
-              literal_entry="${literal_entry//\]/\\]}"
-              literal_entry="${literal_entry//\*/\\*}"
-              literal_entry="${literal_entry//\?/\\?}"
-              cmp <(unzip -p "$candidate" "$literal_entry") <(unzip -p "$published" "$literal_entry")
-            done < "$candidate_entries"
-          }
-
           if [[ -n "$NUGET_API_KEY" ]]; then
             published="$RUNNER_TEMP/published.nupkg"
             url="https://api.nuget.org/v3-flatcontainer/messfsharp/${{ steps.version.outputs.version }}/messfsharp.${{ steps.version.outputs.version }}.nupkg"
@@ -124,7 +96,7 @@ jobs:
             fi
 
             if [[ "$status" == "200" ]]; then
-              compare_package_contents "$package" "$published"
+              bash scripts/compare-nuget-package-payload.sh "$package" "$published"
               echo "The identical package is already published."
             elif [[ "$status" == "404" ]]; then
               dotnet nuget push "$package" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
@@ -146,8 +118,10 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             mkdir -p "$RUNNER_TEMP/existing-release"
             gh release download "$GITHUB_REF_NAME" --pattern "messfsharp.${{ steps.version.outputs.version }}.nupkg" --dir "$RUNNER_TEMP/existing-release"
-            cmp "$package" "$RUNNER_TEMP/existing-release/$(basename "$package")"
-            echo "The existing release contains the identical verified package."
+            bash scripts/compare-nuget-package-payload.sh \
+              "$package" \
+              "$RUNNER_TEMP/existing-release/$(basename "$package")"
+            echo "The existing release contains the same verified package payload."
           else
             gh release create "$GITHUB_REF_NAME" \
               "$package" \
