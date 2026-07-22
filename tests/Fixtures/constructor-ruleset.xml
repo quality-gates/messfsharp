@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ruleset name="constructor">
+  <rule name="ExcessiveParameterList">
+    <property name="maximum" value="1" />
+  </rule>
+</ruleset>

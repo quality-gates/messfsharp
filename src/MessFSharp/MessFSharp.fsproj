@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>MessFSharp</RootNamespace>
+    <AssemblyName>messfsharp</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Version Condition="'$(PackageVersion)' == ''">$(VersionPrefix)</Version>
+    <Version Condition="'$(PackageVersion)' != ''">$(PackageVersion)</Version>
+    <AssemblyVersion>$(Version).0</AssemblyVersion>
+    <FileVersion>$(Version).0</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <PackageId>messfsharp</PackageId>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>messfsharp</ToolCommandName>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)..\..\artifacts\packages</PackageOutputPath>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/quality-gates/messfsharp</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>fsharp;code-quality;static-analysis;developer-tool</PackageTags>
+    <Description>An idiomatic F# mess detector for local development and CI.</Description>
+    <Authors>quality-gates</Authors>
+    <Company>quality-gates</Company>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <DebugType>embedded</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>false</IncludeSymbols>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Domain.fs" />
+    <Compile Include="Discovery.fs" />
+    <Compile Include="Scanner.fs" />
+    <Compile Include="Parsing.fs" />
+    <Compile Include="Model.fs" />
+    <Compile Include="Rules.fs" />
+    <Compile Include="Rulesets.fs" />
+    <Compile Include="Reports.fs" />
+    <Compile Include="Engine.fs" />
+    <Compile Include="Cli.fs" />
+    <Compile Include="Program.fs" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Compiler.Service" Version="43.11.302" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+  </ItemGroup>
+</Project>

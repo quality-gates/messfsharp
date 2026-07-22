@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ruleset name="edge">
+  <rule name="LongVariable">
+    <properties>
+      <property name="maximum" value="12" />
+      <property name="subtract-prefixes" value="prefix" />
+      <property name="subtract-suffixes" value="Suffix" />
+      <property name="exceptions" value="exemptLongName,duplicateMap,duplicateArray,veryLongRecordFieldName" />
+    </properties>
+  </rule>
+  <rule name="ShortVariable">
+    <properties>
+      <property name="minimum" value="5" />
+      <property name="exceptions" value="count,n" />
+    </properties>
+  </rule>
+  <rule name="ExcessiveParameterList">
+    <property name="maximum" value="1" />
+  </rule>
+  <rule name="BooleanArgumentFlag" />
+  <rule name="ElseExpression" />
+  <rule name="DuplicatedArrayKey" />
+  <rule name="EmptyCatchBlock" />
+  <rule name="CountInLoopExpression" />
+  <rule name="StaticAccess" />
+</ruleset>

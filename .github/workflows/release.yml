@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: startsWith(github.ref_name, 'v')
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - name: Validate stable semantic version tag
+        id: version
+        shell: bash
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$GITHUB_REF_NAME")"
+
+      - name: Restore
+        run: dotnet restore messfsharp.sln --locked-mode
+
+      - name: Build Release
+        run: dotnet build messfsharp.sln --configuration Release --no-restore -p:PackageVersion=${{ steps.version.outputs.version }}
+
+      - name: Run tests
+        run: dotnet test tests/MessFSharp.Tests/MessFSharp.Tests.fsproj --configuration Release --no-build --no-restore
+
+      - name: Self-analyze production source
+        run: >-
+          dotnet src/MessFSharp/bin/Release/net10.0/messfsharp.dll
+          src/MessFSharp text fsharp,codesize,design --ignore-tests
+
+      - name: Pack
+        run: dotnet pack src/MessFSharp/MessFSharp.fsproj --configuration Release --no-build --no-restore -p:PackageVersion=${{ steps.version.outputs.version }}
+
+      - name: Install and smoke-test exact package
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/messfsharp-tool"
+          package="artifacts/packages/messfsharp.${{ steps.version.outputs.version }}.nupkg"
+          dotnet tool install --tool-path "$RUNNER_TEMP/messfsharp-tool" --add-source artifacts/packages messfsharp --version "${{ steps.version.outputs.version }}"
+          actual_version="$("$RUNNER_TEMP/messfsharp-tool/messfsharp" --version)"
+          test "$actual_version" = "messfsharp ${{ steps.version.outputs.version }}"
+          "$RUNNER_TEMP/messfsharp-tool/messfsharp" tests/Fixtures/clean.fs json fsharp --reportfile "$RUNNER_TEMP/smoke.json"
+          jq -e --arg expected "${{ steps.version.outputs.version }}" '.tool == "messfsharp" and .version == $expected and (.errors | length == 0)' "$RUNNER_TEMP/smoke.json" >/dev/null
+          test -s "$package"
+
+      - name: Create checksums
+        run: sha256sum artifacts/packages/messfsharp.${{ steps.version.outputs.version }}.nupkg > artifacts/packages/SHA256SUMS
+
+      - name: Publish NuGet package when credentials are provisioned
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        shell: bash
+        run: |
+          if [[ -n "$NUGET_API_KEY" ]]; then
+            dotnet nuget push artifacts/packages/messfsharp.${{ steps.version.outputs.version }}.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          else
+            echo "NUGET_API_KEY is not provisioned; keeping publication gated after verification."
+          fi
+
+      - name: Create immutable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          artifacts/packages/messfsharp.${{ steps.version.outputs.version }}.nupkg
+          artifacts/packages/SHA256SUMS
+          --verify-tag
+          --title "$GITHUB_REF_NAME"
+          --notes-file CHANGELOG.md

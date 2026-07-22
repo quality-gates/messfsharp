@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ruleset name="exit">
+  <rule name="ExitExpression" />
+</ruleset>

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ruleset name="warning-only">
+  <rule ref="rulesets/codesize.xml/NoSuchRule" />
+</ruleset>

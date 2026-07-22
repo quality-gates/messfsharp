@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - name: Restore
+        run: dotnet restore messfsharp.sln --locked-mode
+
+      - name: Build Release
+        run: dotnet build messfsharp.sln --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test tests/MessFSharp.Tests/MessFSharp.Tests.fsproj --configuration Release --no-build --no-restore
+
+  self-analysis:
+    name: Self-analyze production source
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - name: Restore
+        run: dotnet restore messfsharp.sln --locked-mode
+
+      - name: Build Release
+        run: dotnet build src/MessFSharp/MessFSharp.fsproj --configuration Release --no-restore
+
+      - name: Analyze production source
+        run: >-
+          dotnet src/MessFSharp/bin/Release/net10.0/messfsharp.dll
+          src/MessFSharp text fsharp,codesize,design --ignore-tests
