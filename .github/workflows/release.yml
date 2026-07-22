@@ -15,6 +15,8 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -25,8 +27,7 @@ jobs:
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
           dotnet-version: 10.0.x
-          cache: true
-          cache-dependency-path: '**/packages.lock.json'
+          cache: false
 
       - name: Validate stable semantic version tag
         id: version
