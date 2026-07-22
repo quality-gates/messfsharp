@@ -6,6 +6,7 @@ open FSharp.Compiler.Diagnostics
 open FSharp.Compiler.Text
 open Domain
 
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "CyclomaticComplexity")>]
 module Parsing =
     let private checker = lazy (FSharpChecker.Create(keepAssemblyContents = false))
 
@@ -18,13 +19,24 @@ module Parsing =
 
     let parse (source: SourceFile) =
         try
+            let parsePath =
+                match IO.Path.GetExtension(source.FullPath).ToLowerInvariant() with
+                | ".fs"
+                | ".fsi"
+                | ".fsx" -> source.FullPath
+                | _ ->
+                    source.FullPath
+                    + if source.Kind = Script then ".fsx"
+                      elif source.Kind = Signature then ".fsi"
+                      else ".fs"
+
             let options =
                 { FSharpParsingOptions.Default with
-                    SourceFiles = [| source.FullPath |]
+                    SourceFiles = [| parsePath |]
                     IsInteractive = source.Kind = Script }
 
             let results =
-                checker.Value.ParseFile(source.FullPath, SourceText.ofString source.Text, options)
+                checker.Value.ParseFile(parsePath, SourceText.ofString source.Text, options)
                 |> Async.RunSynchronously
 
             let errors =
@@ -45,7 +57,7 @@ module Parsing =
                 else
                     Error errors
             else
-                Ok()
+                Ok results.ParseTree
         with ex ->
             Error
                 [ { File = Some source.FullPath

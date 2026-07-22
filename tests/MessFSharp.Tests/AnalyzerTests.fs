@@ -16,6 +16,50 @@ module AnalyzerTests =
             Rulesets = rulesets
             Format = format }
 
+    let private analyzeSource text =
+        let source =
+            { FullPath = Path.Combine(Path.GetTempPath(), "messfsharp-model.fs")
+              Kind = Implementation
+              Text = text
+              Lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n') }
+
+        match Parsing.parse source with
+        | Ok parsedInput -> Model.analyze source parsedInput
+        | Error errors -> failwithf "Expected valid F# source, got %A" errors
+
+    [<Fact>]
+    let ``compiler syntax supplies data types interfaces scopes expressions and references`` () =
+        let analyzed =
+            analyzeSource
+                """module ModelShapes
+
+type Email = Email of string
+
+type IClock =
+    abstract member Now: unit -> System.DateTime
+
+let choose condition left right =
+    if condition then left else right
+"""
+
+        let typeNamed name =
+            analyzed.Declarations
+            |> List.find (fun declaration -> declaration.Kind = Type && declaration.Name = name)
+
+        Assert.Equal(UnionType, (typeNamed "Email").TypeShape)
+        Assert.True((typeNamed "Email").IsUnion)
+        Assert.Equal(InterfaceType, (typeNamed "IClock").TypeShape)
+        Assert.True((typeNamed "IClock").IsInterface)
+
+        Assert.Contains(
+            analyzed.Declarations,
+            fun declaration -> declaration.Kind = UnionCase && declaration.Name = "Email"
+        )
+
+        Assert.Contains(analyzed.Expressions, fun expression -> expression.Kind = ConditionalExpression)
+        Assert.Contains(analyzed.SyntacticReferences, fun reference -> reference.Name = "condition")
+        Assert.NotEmpty(analyzed.LexicalScopes)
+
     [<Fact>]
     let ``recommended ruleset keeps idiomatic F sharp fixture clean`` () =
         let result = Engine.run "0.1.0" (options [ fixture "clean.fs" ] [ "fsharp" ] Text)
@@ -61,6 +105,25 @@ module AnalyzerTests =
 
         Assert.Empty(errors)
         Assert.Equal<string list>([ clean ], discovered)
+
+    [<Fact>]
+    let ``case-sensitive file names are not collapsed on Unix`` () =
+        if OperatingSystem.IsLinux() then
+            let directory = Directory.CreateTempSubdirectory("messfsharp-case-")
+
+            try
+                let upper = Path.Combine(directory.FullName, "A.fs")
+                let lower = Path.Combine(directory.FullName, "a.fs")
+                File.WriteAllText(upper, "module A")
+                File.WriteAllText(lower, "module B")
+
+                let discovered, errors =
+                    Discovery.discover (options [ directory.FullName ] [ "fsharp" ] Text)
+
+                Assert.Empty(errors)
+                Assert.Equal<string list>([ upper; lower ], discovered)
+            finally
+                directory.Delete(true)
 
     [<Fact>]
     let ``a parse failure is reported without suppressing valid input processing`` () =
