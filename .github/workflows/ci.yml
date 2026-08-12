@@ -37,6 +37,9 @@ jobs:
       - name: Run tests
         run: dotnet test tests/MessFSharp.Tests/MessFSharp.Tests.fsproj --configuration Release --no-build --no-restore
 
+      - name: Test macOS release archive contract
+        run: tests/release-archive-contract.sh
+
   self-analysis:
     name: Self-analyze production source
     needs: test
