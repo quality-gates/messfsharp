@@ -21,7 +21,7 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 10.0.302
 
       - name: Restore with NuGet audit enabled
         run: >-
