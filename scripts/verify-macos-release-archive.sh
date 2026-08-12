@@ -21,18 +21,9 @@ if [[ "$run_archive" != "" && "$run_archive" != "--run" ]]; then
   exit 64
 fi
 
-case "$architecture" in
-  arm64)
-    machine="arm64"
-    ;;
-  amd64)
-    machine="x86_64"
-    ;;
-  *)
-    echo "Architecture must be arm64 or amd64: $architecture" >&2
-    exit 64
-    ;;
-esac
+repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+machine="$("$repository_root/scripts/macos-release-platform.sh" "$architecture" machine)"
+file_pattern="$("$repository_root/scripts/macos-release-platform.sh" "$architecture" file-pattern)"
 
 python3 - "$archive" <<'PY'
 import pathlib
@@ -60,14 +51,10 @@ tar -xzf "$archive" -C "$temporary_directory"
 test -x "$temporary_directory/messfsharp"
 test -s "$temporary_directory/LICENSE"
 binary_description="$(file "$temporary_directory/messfsharp")"
-case "$architecture" in
-  arm64) grep -Eq 'Mach-O 64-bit (arm64 executable|executable (arm64|ARM aarch64))' <<<"$binary_description" ;;
-  amd64) grep -Eq 'Mach-O 64-bit (x86_64 executable|executable (x86_64|x86-64))' <<<"$binary_description" ;;
-esac
+grep -Eq "$file_pattern" <<<"$binary_description"
 
 if [[ "$run_archive" == "--run" ]]; then
   test "$(uname -m)" = "$machine"
-  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   export DOTNET_MULTILEVEL_LOOKUP=0
   export DOTNET_ROOT="$temporary_directory/no-dotnet"
   test "$("$temporary_directory/messfsharp" --version)" = "messfsharp $version"
