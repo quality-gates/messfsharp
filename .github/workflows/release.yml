@@ -28,8 +28,8 @@ jobs:
     timeout-minutes: 10
     outputs:
       version: ${{ steps.release.outputs.version }}
-      source_sha: ${{ steps.release.outputs.source_sha }}
-      immutable_release: ${{ steps.release.outputs.immutable_release }}
+      source_sha: ${{ steps.release.outputs['source-sha'] }}
+      immutable_release: ${{ steps.release.outputs['immutable-release'] }}
     steps:
       - name: Check out release source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -327,10 +327,12 @@ jobs:
           status="$(curl --silent --show-error --location \
             --output "$published" --write-out '%{http_code}' "$url")"
           if [[ "$status" == "200" ]]; then
-            scripts/compare-nuget-package-payload.sh "$package" "$published"
+            bash scripts/compare-nuget-package-payload.sh "$package" "$published"
             echo "The identical NuGet package is already published."
           elif [[ "$status" == "404" ]]; then
-            dotnet nuget push "$package"               --api-key "$NUGET_API_KEY"               --source https://api.nuget.org/v3/index.json
+            dotnet nuget push "$package" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json
           else
             echo "NuGet returned unexpected status $status." >&2
             exit 1

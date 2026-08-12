@@ -12,6 +12,7 @@ working_directory="$3"
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 package="$package_directory/messfsharp.${version}.nupkg"
 
+mkdir -p "$working_directory"
 unzip -p "$package" messfsharp.nuspec > "$working_directory/messfsharp.nuspec"
 grep -F '<id>messfsharp</id>' "$working_directory/messfsharp.nuspec"
 grep -F "<version>${version}</version>" "$working_directory/messfsharp.nuspec"
@@ -32,6 +33,9 @@ dotnet tool install \
   --tool-path "$working_directory/messfsharp-tool" \
   --configfile "$working_directory/nuget.config" \
   messfsharp --version "$version"
+dotnet_base_path="$(dotnet --info | awk -F': +' '/Base Path:/ { print $2; exit }')"
+DOTNET_ROOT="$(cd "$dotnet_base_path/../.." && pwd)"
+export DOTNET_ROOT
 test "$("$working_directory/messfsharp-tool/messfsharp" --version)" = "messfsharp $version"
 "$working_directory/messfsharp-tool/messfsharp" \
   "$repository_root/tests/Fixtures/clean.fs" json fsharp \
