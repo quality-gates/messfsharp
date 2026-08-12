@@ -20,16 +20,8 @@ if [[ ! "$source_date_epoch" =~ ^[0-9]+$ ]]; then
   exit 64
 fi
 
-case "$architecture" in
-  arm64) runtime_identifier="osx-arm64" ;;
-  amd64) runtime_identifier="osx-x64" ;;
-  *)
-    echo "Architecture must be arm64 or amd64: $architecture" >&2
-    exit 64
-    ;;
-esac
-
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+runtime_identifier="$("$repository_root/scripts/macos-release-platform.sh" "$architecture" runtime)"
 project="$repository_root/src/MessFSharp/MessFSharp.fsproj"
 temporary_directory="$(mktemp -d)"
 trap 'rm -rf "$temporary_directory"' EXIT
