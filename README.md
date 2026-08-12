@@ -34,12 +34,25 @@ Custom XML schema: [docs/ruleset-schema.md](docs/ruleset-schema.md).
 
 ## Install
 
+On Apple Silicon or Intel macOS, install the self-contained release with
+Homebrew:
+
+```console
+brew install quality-gates/tap/messfsharp
+messfsharp --version
+```
+
+Upgrade it with `brew update` followed by
+`brew upgrade quality-gates/tap/messfsharp`.
+
+Alternatively, install the .NET tool:
+
 ```console
 dotnet tool install --global messfsharp
 messfsharp --version
 ```
 
-Pin it for a repository or CI job:
+Pin the .NET tool for a repository or CI job:
 
 ```console
 dotnet new tool-manifest
