@@ -145,6 +145,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Check out validated source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+          persist-credentials: false
+
       - name: Download archives
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -166,12 +172,6 @@ jobs:
           test "$actual" = "$expected"
           sha256sum messfsharp_*.tar.gz | LC_ALL=C sort > checksums.txt
 
-      - name: Check out validated source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ needs.validate.outputs.source_sha }}
-          persist-credentials: false
-
       - name: Set up .NET
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
@@ -190,25 +190,8 @@ jobs:
           dotnet pack src/MessFSharp/MessFSharp.fsproj \
             --configuration Release --no-build --no-restore -p:PackageVersion="$VERSION"
           package="artifacts/packages/messfsharp.${VERSION}.nupkg"
-          unzip -p "$package" messfsharp.nuspec > "$RUNNER_TEMP/messfsharp.nuspec"
-          grep -F '<id>messfsharp</id>' "$RUNNER_TEMP/messfsharp.nuspec"
-          grep -F "<version>${VERSION}</version>" "$RUNNER_TEMP/messfsharp.nuspec"
-          grep -F '<license type="expression">MIT</license>' "$RUNNER_TEMP/messfsharp.nuspec"
-          mkdir -p "$RUNNER_TEMP/messfsharp-tool"
-          cat > "$RUNNER_TEMP/nuget.config" <<EOF
-          <?xml version="1.0" encoding="utf-8"?>
-          <configuration>
-            <packageSources>
-              <clear />
-              <add key="release" value="$GITHUB_WORKSPACE/artifacts/packages" />
-            </packageSources>
-          </configuration>
-          EOF
-          dotnet tool install \
-            --tool-path "$RUNNER_TEMP/messfsharp-tool" \
-            --configfile "$RUNNER_TEMP/nuget.config" \
-            messfsharp --version "$VERSION"
-          test "$("$RUNNER_TEMP/messfsharp-tool/messfsharp" --version)" = "messfsharp $VERSION"
+          scripts/smoke-nuget-package.sh \
+            artifacts/packages "$VERSION" "$RUNNER_TEMP/package-smoke"
           cp "$package" dist/
           (cd dist && sha256sum "messfsharp.${VERSION}.nupkg" > SHA256SUMS)
 
@@ -316,23 +299,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir dist
-          gh release download "$TAG"             --pattern "messfsharp.${VERSION}.nupkg"             --pattern SHA256SUMS             --dir dist
-          test "$(awk 'NF == 2 { print $2 }' dist/SHA256SUMS)" = "messfsharp.${VERSION}.nupkg"
+          gh release download "$TAG" \
+            --pattern "messfsharp.${VERSION}.nupkg" \
+            --pattern SHA256SUMS \
+            --dir dist
+          test "$(awk 'NF == 2 { print $2 }' dist/SHA256SUMS)" = \
+            "messfsharp.${VERSION}.nupkg"
           (cd dist && sha256sum -c SHA256SUMS)
-          mkdir -p "$RUNNER_TEMP/messfsharp-tool"
-          cat > "$RUNNER_TEMP/nuget.config" <<EOF
-          <?xml version="1.0" encoding="utf-8"?>
-          <configuration>
-            <packageSources>
-              <clear />
-              <add key="release" value="$GITHUB_WORKSPACE/dist" />
-            </packageSources>
-          </configuration>
-          EOF
-          dotnet tool install             --tool-path "$RUNNER_TEMP/messfsharp-tool"             --configfile "$RUNNER_TEMP/nuget.config"             messfsharp --version "$VERSION"
-          test "$("$RUNNER_TEMP/messfsharp-tool/messfsharp" --version)" = "messfsharp $VERSION"
-          "$RUNNER_TEMP/messfsharp-tool/messfsharp"             tests/Fixtures/clean.fs json fsharp             --reportfile "$RUNNER_TEMP/smoke.json"
-          jq -e --arg version "$VERSION"             '.tool == "messfsharp" and .version == $version and (.errors | length == 0)'             "$RUNNER_TEMP/smoke.json" >/dev/null
+          scripts/smoke-nuget-package.sh \
+            dist "$VERSION" "$RUNNER_TEMP/package-smoke"
 
       - name: Publish or verify the NuGet package
         env:
@@ -349,7 +324,8 @@ jobs:
 
           published="$RUNNER_TEMP/published.nupkg"
           url="https://api.nuget.org/v3-flatcontainer/messfsharp/${VERSION}/messfsharp.${VERSION}.nupkg"
-          status="$(curl --silent --show-error --location             --output "$published" --write-out '%{http_code}' "$url")"
+          status="$(curl --silent --show-error --location \
+            --output "$published" --write-out '%{http_code}' "$url")"
           if [[ "$status" == "200" ]]; then
             scripts/compare-nuget-package-payload.sh "$package" "$published"
             echo "The identical NuGet package is already published."
