@@ -23,11 +23,9 @@ fi
 
 case "$architecture" in
   arm64)
-    file_architecture="arm64"
     machine="arm64"
     ;;
   amd64)
-    file_architecture="x86_64"
     machine="x86_64"
     ;;
   *)
@@ -61,7 +59,11 @@ trap 'rm -rf "$temporary_directory"' EXIT
 tar -xzf "$archive" -C "$temporary_directory"
 test -x "$temporary_directory/messfsharp"
 test -s "$temporary_directory/LICENSE"
-file "$temporary_directory/messfsharp" | grep -F "Mach-O 64-bit executable $file_architecture"
+binary_description="$(file "$temporary_directory/messfsharp")"
+case "$architecture" in
+  arm64) grep -Eq 'Mach-O 64-bit (arm64 executable|executable (arm64|ARM aarch64))' <<<"$binary_description" ;;
+  amd64) grep -Eq 'Mach-O 64-bit (x86_64 executable|executable (x86_64|x86-64))' <<<"$binary_description" ;;
+esac
 
 if [[ "$run_archive" == "--run" ]]; then
   test "$(uname -m)" = "$machine"
