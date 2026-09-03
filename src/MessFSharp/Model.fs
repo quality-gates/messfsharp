@@ -472,7 +472,14 @@ module Model =
           IsMutable = isMutable
           IsStatic = isStatic
           IsPrivate = accessibility = "private"
-          IsPublic = accessibility = "public" || accessibility = ""
+          IsPublic =
+            accessibility = "public"
+            || (accessibility = ""
+                && (isModuleLevel
+                    || kind = Member
+                    || kind = Property
+                    || kind = Constructor
+                    || kind = Type))
           IsCompilerGenerated = isCompilerGeneratedDeclaration source.Lines line
           IsIgnored = normalizedName = "_" || normalizedName.StartsWith("_", StringComparison.Ordinal)
           IsLiteral = isLiteral
