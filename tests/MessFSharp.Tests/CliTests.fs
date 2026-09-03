@@ -45,4 +45,3 @@ module CliTests =
         match Cli.parse [| "help"; "text"; "fsharp" |] with
         | Analyze options -> Assert.Equal<string list>([ "help" ], options.Paths)
         | other -> Assert.True(false, sprintf "Expected Analyze, got %A" other)
-

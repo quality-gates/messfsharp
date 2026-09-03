@@ -251,18 +251,18 @@ module Rules =
                 index <- index - 1
 
             let nonBlankLines =
-                collected
-                |> Seq.filter (fun line -> lineIndent line > elseIndent)
-                |> Seq.toList
+                collected |> Seq.filter (fun line -> lineIndent line > elseIndent) |> Seq.toList
 
             if nonBlankLines.IsEmpty then
                 false
             else
                 let thenIndent = nonBlankLines |> List.map lineIndent |> List.min
+
                 let lastTopLevelStatement =
                     nonBlankLines
                     |> List.filter (fun line -> lineIndent line = thenIndent)
                     |> List.tryHead
+
                 lastTopLevelStatement |> Option.exists hasTerminatingExpression
 
     let private linesInsideLoops (file: AnalyzedFile) =
