@@ -199,7 +199,16 @@ module Rulesets =
 
     let private selection (rulesetName: string) (rule: RuleImplementation) priority properties =
         let mergedProperties =
-            Map.fold (fun current key value -> Map.add key value current) rule.DefaultProperties properties
+            properties
+            |> Map.fold
+                (fun (current: Map<string, string>) key value ->
+                    let withoutExisting =
+                        current
+                        |> Map.filter (fun existingKey _ ->
+                            not (String.Equals(existingKey, key, StringComparison.OrdinalIgnoreCase)))
+
+                    withoutExisting |> Map.add key value)
+                rule.DefaultProperties
 
         let mergedProperties =
             match tryProperty properties "reportLevel" with

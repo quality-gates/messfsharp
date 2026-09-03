@@ -424,12 +424,9 @@ module Model =
                         | _ when token.Kind = Identifier ->
                             let value = token.Text.Trim('`')
 
-                            if
-                                not (ignoredIdentifier value)
-                                && value <> "_"
-                                && not (currentName.IsNone && value.Length > 0 && Char.IsUpper(value[0]))
-                            then
+                            if not (ignoredIdentifier value) && value <> "_" then
                                 match currentName with
+                                | Some(prev, _, _) when prev.Length > 0 && Char.IsUpper(prev[0]) -> ()
                                 | Some _ -> flush ()
                                 | None -> ()
 
@@ -1452,7 +1449,9 @@ module Model =
                 facts.Declarations
                 |> List.tryFind (fun fact ->
                     fact.Name = declaration.Name
-                    && fact.Location.StartLine = declaration.Location.StartLine
+                    && ((fact.Location.StartLine = declaration.Location.StartLine)
+                        || (fact.Location.StartLine <= declaration.Location.StartLine
+                            && declaration.Location.StartLine <= fact.Location.EndLine))
                     && match fact.Kind with
                        | SyntaxModel.TypeFact _ -> true
                        | _ -> false)
@@ -1484,7 +1483,9 @@ module Model =
                 result
                 |> Seq.exists (fun declaration ->
                     declaration.Name = fact.Name
-                    && declaration.Location.StartLine = fact.Location.StartLine
+                    && ((declaration.Location.StartLine = fact.Location.StartLine)
+                        || (fact.Location.StartLine <= declaration.Location.StartLine
+                            && declaration.Location.StartLine <= fact.Location.EndLine))
                     && (declaration.Kind = Function || declaration.Kind = Value))
                 |> not
                 ->
