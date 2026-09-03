@@ -35,3 +35,13 @@ module CliTests =
         match Cli.parse [| "src"; "text" |] with
         | Invalid message -> Assert.Contains("exactly three positional", message)
         | other -> Assert.True(false, sprintf "Expected Invalid, got %A" other)
+
+    [<Fact>]
+    let ``argument values matching help do not hijack command parsing`` () =
+        match Cli.parse [| "src"; "text"; "fsharp"; "--exclude"; "help" |] with
+        | Analyze options -> Assert.Equal<string list>([ "help" ], options.Excludes)
+        | other -> Assert.True(false, sprintf "Expected Analyze, got %A" other)
+
+        match Cli.parse [| "help"; "text"; "fsharp" |] with
+        | Analyze options -> Assert.Equal<string list>([ "help" ], options.Paths)
+        | other -> Assert.True(false, sprintf "Expected Analyze, got %A" other)

@@ -77,8 +77,8 @@ Options:
 
     let parse (argv: string array) =
         if
-            argv
-            |> Array.exists (fun argument -> argument = "--help" || argument = "-h" || argument = "help")
+            argv |> Array.exists (fun argument -> argument = "--help" || argument = "-h")
+            || (argv.Length = 1 && argv[0] = "help")
         then
             Help
         elif argv |> Array.exists (fun argument -> argument = "--version") then

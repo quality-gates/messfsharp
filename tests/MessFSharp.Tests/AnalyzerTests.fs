@@ -387,3 +387,201 @@ let choose condition left right =
             |> List.filter (fun violation -> violation.RuleName = "ExitExpression")
             |> List.length
         )
+
+    [<Fact>]
+    let ``double-backtick identifiers with spaces are scanned and reference counted`` () =
+        let analyzed =
+            analyzeSource
+                """module TestUnused
+let calculate () =
+    let ``my count`` = 1
+    let result = ``my count`` + 1
+    result
+"""
+
+        let selection =
+            { Name = "UnusedLocalVariable"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedLocalVariable")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``verbatim string with trailing backslash does not swallow subsequent tokens`` () =
+        let analyzed =
+            analyzeSource
+                """module TestVerbatim
+let dir = @"C:\temp\"
+let mutable count = 0
+count <- 1
+"""
+
+        let selection =
+            { Name = "GlobalVariable"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "GlobalVariable")
+        let violations = rule.Check analyzed selection
+        Assert.NotEmpty(violations)
+
+    [<Fact>]
+    let ``interpolated string holes are scanned and referenced bindings are not unused`` () =
+        let analyzed =
+            analyzeSource
+                """module TestInterpolated
+let greet (name: string) =
+    let prefix = "Hello"
+    printfn $"{prefix} {name}"
+"""
+
+        let selectionParam =
+            { Name = "UnusedFormalParameter"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let ruleParam = Rules.all |> List.find (fun r -> r.Name = "UnusedFormalParameter")
+        let violationsParam = ruleParam.Check analyzed selectionParam
+        Assert.Empty(violationsParam)
+
+        let selectionLocal =
+            { Name = "UnusedLocalVariable"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let ruleLocal = Rules.all |> List.find (fun r -> r.Name = "UnusedLocalVariable")
+        let violationsLocal = ruleLocal.Check analyzed selectionLocal
+        Assert.Empty(violationsLocal)
+
+    [<Fact>]
+    let ``duplicated array key ignores commas in map entry values`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMap
+let myMap =
+    Map.ofList
+        [ "first", (1, "shared")
+          "second", (1, "different") ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``static access ignores open directives`` () =
+        let analyzed =
+            analyzeSource
+                """module TestStatic
+open System.Collections.Generic
+open System.Text.Json
+
+let run () = 42
+"""
+
+        let selection =
+            { Name = "StaticAccess"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``boolean argument flag does not match unanchored substring use in words like isUser or paused`` () =
+        let analyzed =
+            analyzeSource
+                """module TestFlags
+type Account =
+    member this.Update(isUser: bool, isPaused: bool) = ()
+"""
+
+        let selection =
+            { Name = "BooleanArgumentFlag"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "BooleanArgumentFlag")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``else expression does not flag outer else when only nested branch terminates`` () =
+        let analyzed =
+            analyzeSource
+                """module TestElse
+let check (a: bool) (b: bool) =
+    if a then
+        if b then
+            failwith "nested termination"
+        printfn "continuing outer then branch"
+    else
+        printfn "outer else branch"
+"""
+
+        let selection =
+            { Name = "ElseExpression"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "ElseExpression")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``suppress message on let binding with preceding attribute suppresses rule violation`` () =
+        let source =
+            """module TestSuppression
+open System.Diagnostics.CodeAnalysis
+
+[<SuppressMessage("messfsharp", "ShortVariable")>]
+let v = 1
+"""
+
+        let tempFile =
+            Path.Combine(Path.GetTempPath(), $"messfsharp-suppress-{Guid.NewGuid()}.fs")
+
+        try
+            File.WriteAllText(tempFile, source)
+            let result = Engine.run "0.1.0" (options [ tempFile ] [ "naming" ] Json)
+            Assert.Empty(result.Report.Errors)
+            Assert.Empty(result.Report.Violations)
+        finally
+            File.Delete(tempFile)
+
+    [<Fact>]
+    let ``attributed interface declarations resolve InterfaceType and IsInterface true`` () =
+        let source =
+            """module TestInterface
+open System
+
+[<Interface>]
+type IGreeter =
+    abstract member Greet: string -> string
+"""
+
+        let analyzed = analyzeSource source
+
+        let typeDecl =
+            analyzed.Declarations
+            |> List.find (fun d -> d.Kind = Type && d.Name = "IGreeter")
+
+        Assert.Equal(InterfaceType, typeDecl.TypeShape)
+        Assert.True(typeDecl.IsInterface)
+        Assert.False(typeDecl.IsClassLike)

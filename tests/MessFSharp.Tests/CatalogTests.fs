@@ -132,3 +132,41 @@ module CatalogTests =
             implementations["LongVariable"].DefaultProperties.ContainsKey("subtract-prefixes")
             |> not
         )
+
+    [<Fact>]
+    let ``custom ruleset property overrides with case insensitive names replace defaults`` () =
+        let xml =
+            """<?xml version="1.0" encoding="utf-8"?>
+<ruleset name="custom">
+    <rule ref="BooleanGetMethodName">
+        <property name="checkparameterizedmethods" value="false" />
+    </rule>
+</ruleset>"""
+
+        let tempFile = System.IO.Path.GetTempFileName()
+
+        try
+            System.IO.File.WriteAllText(tempFile, xml)
+            let loadedRuleset = loaded tempFile
+
+            let selection =
+                loadedRuleset.Selections |> List.find (fun s -> s.Name = "BooleanGetMethodName")
+
+            let matchingValue =
+                selection.Properties
+                |> Seq.tryPick (fun item ->
+                    if
+                        System.String.Equals(
+                            item.Key,
+                            "checkParameterizedMethods",
+                            System.StringComparison.OrdinalIgnoreCase
+                        )
+                    then
+                        Some item.Value
+                    else
+                        None)
+
+            Assert.Equal(Some "false", matchingValue)
+            Assert.Equal(1, selection.Properties.Count)
+        finally
+            System.IO.File.Delete(tempFile)

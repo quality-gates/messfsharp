@@ -220,35 +220,50 @@ module Rules =
     let private hasTerminatingExpression (text: string) =
         Regex.IsMatch(text, "(?i)\\b(?:failwith|raise|Environment\\.Exit)\\b")
 
-    let private linesBeforeElse (file: AnalyzedFile) lineNumber column =
+    let private isElseFlattenable (file: AnalyzedFile) lineNumber column =
         let currentLine = file.Source.Lines[lineNumber - 1]
         let prefixLength = min currentLine.Length (max 0 (column - 1))
         let currentPrefix = currentLine.Substring(0, prefixLength)
-        let collected = ResizeArray<string>()
-        collected.Add(currentPrefix)
 
-        let elseIndent = lineIndent currentLine
-        let mutable index = lineNumber - 2
-        let mutable stopped = false
+        if not (String.IsNullOrWhiteSpace currentPrefix) then
+            Regex.IsMatch(currentPrefix, "(?i)\\bthen\\b[\\s\\S]*\\b(?:failwith|raise|Environment\\.Exit)\\b")
+        else
+            let elseIndent = lineIndent currentLine
+            let mutable index = lineNumber - 2
+            let collected = ResizeArray<string>()
+            let mutable stopped = false
 
-        while index >= 0 && not stopped do
-            let line = file.Source.Lines[index]
+            while index >= 0 && not stopped do
+                let line = file.Source.Lines[index]
 
-            if
-                not (String.IsNullOrWhiteSpace line)
-                && not (line.TrimStart().StartsWith("//", StringComparison.Ordinal))
-            then
-                let indent = lineIndent line
-                collected.Add(line)
+                if
+                    not (String.IsNullOrWhiteSpace line)
+                    && not (line.TrimStart().StartsWith("//", StringComparison.Ordinal))
+                then
+                    let indent = lineIndent line
+                    collected.Add(line)
 
-                if indent <= elseIndent && Regex.IsMatch(line.TrimStart(), "^(?:if|elif)\\b") then
-                    stopped <- true
-                elif indent < elseIndent then
-                    stopped <- true
+                    if indent <= elseIndent && Regex.IsMatch(line.TrimStart(), "^(?:if|elif)\\b") then
+                        stopped <- true
+                    elif indent < elseIndent then
+                        stopped <- true
 
-            index <- index - 1
+                index <- index - 1
 
-        collected |> Seq.toList
+            let nonBlankLines =
+                collected |> Seq.filter (fun line -> lineIndent line > elseIndent) |> Seq.toList
+
+            if nonBlankLines.IsEmpty then
+                false
+            else
+                let thenIndent = nonBlankLines |> List.map lineIndent |> List.min
+
+                let lastTopLevelStatement =
+                    nonBlankLines
+                    |> List.filter (fun line -> lineIndent line = thenIndent)
+                    |> List.tryHead
+
+                lastTopLevelStatement |> Option.exists hasTerminatingExpression
 
     let private linesInsideLoops (file: AnalyzedFile) =
         let lines = file.Source.Lines
@@ -951,13 +966,17 @@ module Rules =
           Description = "Reports boolean parameters used as behaviour flags."
           Check =
             fun file selection ->
+                let isFlagName (name: string) =
+                    name.IndexOf("flag", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name.IndexOf("enable", StringComparison.OrdinalIgnoreCase) >= 0
+                    || (name.StartsWith("use", StringComparison.OrdinalIgnoreCase)
+                        && (name.Length = 3 || Char.IsUpper(name[3]) || name[3] = '_'))
+
                 defsFor
                     (fun declaration ->
                         declaration.Kind = Parameter
                         && declaration.IsBoolean
-                        && (declaration.Name.IndexOf("flag", StringComparison.OrdinalIgnoreCase) >= 0
-                            || declaration.Name.IndexOf("enable", StringComparison.OrdinalIgnoreCase) >= 0
-                            || declaration.Name.IndexOf("use", StringComparison.OrdinalIgnoreCase) >= 0
+                        && (isFlagName declaration.Name
                             || (file.Declarations
                                 |> List.filter (fun candidate ->
                                     candidate.Name = defaultArg declaration.Parent ""
@@ -990,9 +1009,7 @@ module Rules =
                 file.Tokens
                 |> Array.filter (fun token -> token.Text = "else")
                 |> Array.choose (fun token ->
-                    let branchText = linesBeforeElse file token.Line token.Column |> String.concat "\n"
-
-                    if hasTerminatingExpression branchText then
+                    if isElseFlattenable file token.Line token.Column then
                         Some(
                             violation
                                 file
@@ -1012,27 +1029,31 @@ module Rules =
           Description = "Reports explicit static .NET access when this stricter policy is selected."
           Check =
             fun file selection ->
-                file.Tokens
-                |> Array.windowed 5
-                |> Array.choose (fun window ->
+                let tokens = file.Tokens
+
+                tokens
+                |> Array.mapi (fun i token ->
                     if
-                        (window[0].Text = "System" || window[0].Text = "Microsoft")
-                        && window[1].Text = "."
-                        && window[2].Kind = Identifier
-                        && startsWithUpper window[2].Text
-                        && window[3].Text = "."
-                        && window[4].Kind = Identifier
+                        i + 4 < tokens.Length
+                        && (token.Text = "System" || token.Text = "Microsoft")
+                        && tokens[i + 1].Text = "."
+                        && tokens[i + 2].Kind = Identifier
+                        && startsWithUpper tokens[i + 2].Text
+                        && tokens[i + 3].Text = "."
+                        && tokens[i + 4].Kind = Identifier
+                        && not (i > 0 && tokens[i - 1].Text = "open" && tokens[i - 1].Kind = Keyword)
                     then
                         Some(
                             violation
                                 file
                                 selection
                                 None
-                                window[0].Line
+                                token.Line
                                 "Explicit static access is enabled by an opinionated policy."
                         )
                     else
                         None)
+                |> Array.choose id
                 |> Array.distinctBy (fun item -> item.Location.StartLine)
                 |> Array.toList }
 
@@ -1050,19 +1071,33 @@ module Rules =
           Description = "Reports duplicate statically knowable keys in map or dictionary construction."
           Check =
             fun file selection ->
-                let keyPattern =
+                let entryKeyPattern =
                     Regex(
-                        "(?:\\(\\s*)?(\"[^\"]*\"|'[^']*'|-?[0-9]+|true|false)\\s*,",
+                        "^(\"[^\"]*\"|'[^']*'|-?[0-9]+|true|false)\\s*,",
                         RegexOptions.Compiled ||| RegexOptions.IgnoreCase
                     )
 
                 constructionBlocks file
                 |> List.choose (fun (lineNumber, text) ->
+                    let listContent =
+                        match text.IndexOf('[') with
+                        | -1 -> text
+                        | idx ->
+                            let afterOpen = text.Substring(idx + 1).TrimStart('|')
+
+                            match afterOpen.LastIndexOf(']') with
+                            | -1 -> afterOpen
+                            | closeIdx -> afterOpen.Substring(0, closeIdx).TrimEnd('|')
+
+                    let entries = listContent.Split([| '\n'; ';' |])
+
                     let keys =
-                        keyPattern.Matches(text)
-                        |> Seq.cast<Match>
-                        |> Seq.map (fun item -> item.Groups[1].Value)
-                        |> Seq.toList
+                        entries
+                        |> Array.choose (fun (entry: string) ->
+                            let trimmed = entry.Trim().TrimStart('(').Trim()
+                            let m = entryKeyPattern.Match(trimmed)
+                            if m.Success then Some m.Groups[1].Value else None)
+                        |> Array.toList
 
                     if keys.Length <> (keys |> List.distinct |> List.length) then
                         Some(
