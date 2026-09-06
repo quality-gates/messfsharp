@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Add production and development Dockerfiles (#26).
+- Set runtime WORKDIR to /code and add default help CMD (#27).
+
 ## 0.1.1
 
 - Fix issue where CLI arguments named "help" hijacked command parsing (#22).
