@@ -15,3 +15,10 @@ let useParameter (``BadParameter``: int) = ``BadParameter``
 
 // TODO: deliberate development marker for rule acceptance coverage.
 let developmentMarker = 1
+
+type DisconnectedState() =
+    let first = 1
+    let second = 2
+
+    member _.First() = first + 1
+    member _.Second() = second + 1

@@ -1624,7 +1624,10 @@ module Model =
                     && ((declaration.Location.StartLine = fact.Location.StartLine)
                         || (fact.Location.StartLine <= declaration.Location.StartLine
                             && declaration.Location.StartLine <= fact.Location.EndLine))
-                    && (declaration.Kind = Function || declaration.Kind = Value))
+                    && (declaration.Kind = Function
+                        || declaration.Kind = Value
+                        || declaration.Kind = Member
+                        || declaration.Kind = Property))
                 |> not
                 ->
                 let parent = nearestParent (result |> Seq.toList) fact.Location.StartLine

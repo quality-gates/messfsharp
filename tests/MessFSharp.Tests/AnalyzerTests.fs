@@ -61,6 +61,85 @@ let choose condition left right =
         Assert.NotEmpty(analyzed.LexicalScopes)
 
     [<Fact>]
+    let ``compiler bindings match existing member and property declarations`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMemberBindings
+
+type Service() =
+    member private this.Helper() = 42
+    member this.Compute(amount: int) = this.Helper() + amount
+    member this.Rate with get() = 1
+"""
+
+        let declarationCount name =
+            analyzed.Declarations
+            |> List.filter (fun declaration -> declaration.Name = name)
+            |> List.length
+
+        Assert.Equal(1, declarationCount "Helper")
+        Assert.Equal(1, declarationCount "Compute")
+        Assert.Equal(1, declarationCount "Rate")
+
+    [<Fact>]
+    let ``type methods count each member definition once`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMethodCounts
+
+type Service() =
+    member _.M1() = 1
+    member _.M2() = 2
+"""
+
+        Assert.Equal(2, (Map.find "Service" analyzed.TypeMethods |> List.length))
+
+    [<Fact>]
+    let ``private members called by other members are not flagged unused`` () =
+        let analyzed =
+            analyzeSource
+                """module TestUsedPrivate
+
+type Service() =
+    member private this.Helper() = 42
+    member this.Run() = this.Helper()
+"""
+
+        let selection =
+            { Name = "UnusedPrivateMethod"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedPrivateMethod")
+        Assert.Empty(rule.Check analyzed selection)
+
+    [<Fact>]
+    let ``genuinely unused private members are still flagged`` () =
+        let analyzed =
+            analyzeSource
+                """module TestUnusedPrivate
+
+type Service() =
+    member private this.Helper() = 42
+    member this.Run() = 1
+"""
+
+        let selection =
+            { Name = "UnusedPrivateMethod"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedPrivateMethod")
+        let violations = rule.Check analyzed selection
+
+        Assert.Contains(
+            violations,
+            fun violation -> violation.Description.Contains("'Helper'", StringComparison.Ordinal)
+        )
+
+    [<Fact>]
     let ``recommended ruleset keeps idiomatic F sharp fixture clean`` () =
         let result = Engine.run "0.1.0" (options [ fixture "clean.fs" ] [ "fsharp" ] Text)
         Assert.Empty(result.Report.Errors)
