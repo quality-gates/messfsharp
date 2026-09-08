@@ -2,6 +2,7 @@
 
 ## 0.1.2
 
+- Fix `ElseExpression` false positives when string literals or comments contain `raise`, `failwith`, or `Environment.Exit` (#34).
 - Add production and development Dockerfiles (#26).
 - Set runtime WORKDIR to /code and add default help CMD (#27).
 
