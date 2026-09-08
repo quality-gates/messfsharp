@@ -104,6 +104,9 @@ module Model =
         else
             None
 
+    let private attributePrefixPattern =
+        declarationRegex "^\\s*(?:\\[<[^[\\]]*>\\]\\s*)+"
+
     let private precedingAttributes (lines: string array) lineNumber =
         let collected = ResizeArray<string>()
         let mutable index = lineNumber - 2
@@ -120,6 +123,12 @@ module Model =
                 index <- index - 1
             else
                 keepGoing <- false
+
+        // Attribute brackets may share the declaration line, e.g. `[<Literal>] let x = 1`.
+        let prefix = attributePrefixPattern.Match(lineAt lines lineNumber)
+
+        if prefix.Success then
+            collected.Add(prefix.Value)
 
         collected |> Seq.rev |> String.concat "\n"
 
