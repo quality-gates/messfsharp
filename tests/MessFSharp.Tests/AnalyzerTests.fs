@@ -593,6 +593,71 @@ let greet (name: string) =
         Assert.Contains("dir", idTokensDV)
 
     [<Fact>]
+    let ``scanner scans unicode hex and decimal character literals as CharacterLiteral`` () =
+        let source =
+            { FullPath = "test.fs"
+              Kind = Implementation
+              Text =
+                "let a = '\\u0041'\nlet b = '\\U00000041'\nlet c = '\\xFF'\nlet d = '\\123'\nlet e = '\\n'\nlet f = 'z'\nlet g = '\\\''\nlet h = '\\\\'"
+              Lines =
+                [| "let a = '\\u0041'"
+                   "let b = '\\U00000041'"
+                   "let c = '\\xFF'"
+                   "let d = '\\123'"
+                   "let e = '\\n'"
+                   "let f = 'z'"
+                   "let g = '\\\''"
+                   "let h = '\\\\'" |] }
+
+        let tokens = Scanner.scan source
+
+        let charTokens =
+            tokens
+            |> Array.filter (fun t -> t.Kind = CharacterLiteral)
+            |> Array.map (fun t -> t.Text)
+
+        Assert.Equal<string[]>(
+            [| "'\\u0041'"
+               "'\\U00000041'"
+               "'\\xFF'"
+               "'\\123'"
+               "'\\n'"
+               "'z'"
+               "'\\\''"
+               "'\\\\'" |],
+            charTokens
+        )
+
+        let bogusTokens =
+            tokens
+            |> Array.filter (fun t -> t.Text = "\\" || (t.Text.Contains("'") && t.Kind <> CharacterLiteral))
+            |> Array.map (fun t -> sprintf "%A:%s" t.Kind t.Text)
+
+        Assert.Empty(bogusTokens)
+
+    [<Fact>]
+    let ``scanner continues to distinguish generic type parameters from character literals`` () =
+        let source =
+            { FullPath = "test.fs"
+              Kind = Implementation
+              Text = "type Container<'T, 'Item> = { Value: 'T; Other: 'Item }"
+              Lines = [| "type Container<'T, 'Item> = { Value: 'T; Other: 'Item }" |] }
+
+        let tokens = Scanner.scan source
+
+        let idTokens =
+            tokens
+            |> Array.filter (fun t -> t.Kind = Identifier)
+            |> Array.map (fun t -> t.Text)
+
+        Assert.Contains("'T", idTokens)
+        Assert.Contains("'Item", idTokens)
+
+        let charTokens = tokens |> Array.filter (fun t -> t.Kind = CharacterLiteral)
+
+        Assert.Empty(charTokens)
+
+    [<Fact>]
     let ``duplicated array key ignores commas in map entry values`` () =
         let analyzed =
             analyzeSource

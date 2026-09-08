@@ -153,6 +153,78 @@ module Scanner =
         else
             None
 
+    let private isAsciiHexDigit character =
+        (character >= '0' && character <= '9')
+        || (character >= 'a' && character <= 'f')
+        || (character >= 'A' && character <= 'F')
+
+    let private isAsciiDecimalDigit character = character >= '0' && character <= '9'
+
+    let private tryScanCharacterLiteral (text: string) length startIndex =
+        if startIndex >= length || text[startIndex] <> '\'' then
+            None
+        elif startIndex + 1 < length && text[startIndex + 1] = '\\' then
+            if
+                startIndex + 11 < length
+                && text[startIndex + 2] = 'U'
+                && text[startIndex + 11] = '\''
+                && isAsciiHexDigit text[startIndex + 3]
+                && isAsciiHexDigit text[startIndex + 4]
+                && isAsciiHexDigit text[startIndex + 5]
+                && isAsciiHexDigit text[startIndex + 6]
+                && isAsciiHexDigit text[startIndex + 7]
+                && isAsciiHexDigit text[startIndex + 8]
+                && isAsciiHexDigit text[startIndex + 9]
+                && isAsciiHexDigit text[startIndex + 10]
+            then
+                Some 12
+            elif
+                startIndex + 7 < length
+                && text[startIndex + 2] = 'u'
+                && text[startIndex + 7] = '\''
+                && isAsciiHexDigit text[startIndex + 3]
+                && isAsciiHexDigit text[startIndex + 4]
+                && isAsciiHexDigit text[startIndex + 5]
+                && isAsciiHexDigit text[startIndex + 6]
+            then
+                Some 8
+            elif
+                startIndex + 5 < length
+                && text[startIndex + 2] = 'x'
+                && text[startIndex + 5] = '\''
+                && isAsciiHexDigit text[startIndex + 3]
+                && isAsciiHexDigit text[startIndex + 4]
+            then
+                Some 6
+            elif
+                startIndex + 5 < length
+                && text[startIndex + 5] = '\''
+                && isAsciiDecimalDigit text[startIndex + 2]
+                && isAsciiDecimalDigit text[startIndex + 3]
+                && isAsciiDecimalDigit text[startIndex + 4]
+            then
+                Some 6
+            elif
+                startIndex + 3 < length
+                && text[startIndex + 3] = '\''
+                && text[startIndex + 2] <> '\n'
+                && text[startIndex + 2] <> '\r'
+            then
+                Some 4
+            else
+                None
+        elif
+            startIndex + 2 < length
+            && text[startIndex + 2] = '\''
+            && text[startIndex + 1] <> '\\'
+            && text[startIndex + 1] <> '\''
+            && text[startIndex + 1] <> '\n'
+            && text[startIndex + 1] <> '\r'
+        then
+            Some 3
+        else
+            None
+
     let scan (source: SourceFile) =
         let tokens = ResizeArray<SyntaxToken>()
         let text = source.Text
@@ -292,33 +364,24 @@ module Scanner =
 
                 if
                     character = '\''
-                    && index + 3 < length
-                    && text[index + 1] = '\\'
-                    && text[index + 3] = '\''
+                    && (match tryScanCharacterLiteral text length index with
+                        | Some literalLength ->
+                            let start = index
+                            advanceMany literalLength
+
+                            addToken
+                                tokens
+                                CharacterLiteral
+                                (text.Substring(start, index - start))
+                                startLine
+                                startColumn
+                                line
+                                column
+
+                            true
+                        | None -> false)
                 then
-                    let start = index
-                    advanceMany 4
-
-                    addToken
-                        tokens
-                        CharacterLiteral
-                        (text.Substring(start, index - start))
-                        startLine
-                        startColumn
-                        line
-                        column
-                elif character = '\'' && index + 2 < length && text[index + 2] = '\'' then
-                    let start = index
-                    advanceMany 3
-
-                    addToken
-                        tokens
-                        CharacterLiteral
-                        (text.Substring(start, index - start))
-                        startLine
-                        startColumn
-                        line
-                        column
+                    ()
                 elif character = '`' && index + 1 < length && text[index + 1] = '`' then
                     advanceMany 2
                     let start = index
