@@ -5,6 +5,7 @@ let badConstant = 1
 
 type NamingExamples() =
     let unusedField = 1
+    let externalDependency: System.IO.Stream = null
 
     member _.getReady: bool = true
     member _.badMember() = 1

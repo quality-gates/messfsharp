@@ -585,3 +585,115 @@ type IGreeter =
         Assert.Equal(InterfaceType, typeDecl.TypeShape)
         Assert.True(typeDecl.IsInterface)
         Assert.False(typeDecl.IsClassLike)
+
+    [<Fact>]
+    let ``coupling between objects excludes comments string literals and own members`` () =
+        let source =
+            """module TestCoupling
+
+type SimpleService() =
+    // Note: Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet Kilo Lima Mike
+    (* MultiLine Doc: One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve *)
+    let message = "November Oscar Papa Quebec Romeo Sierra Tango Uniform Victor Whiskey Xray Yankee Zulu"
+    member this.FirstMethod() = message
+    member this.SecondMethod() = ()
+    member val FirstProperty = 1 with get, set
+"""
+
+        let analyzed = analyzeSource source
+
+        let selection =
+            { Name = "CouplingBetweenObjects"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.ofList [ "maximum", "13" ] }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "CouplingBetweenObjects")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``coupling between objects counts genuine external types and triggers when exceeding threshold`` () =
+        let source =
+            """module TestExternalCoupling
+
+type ComplexService(
+    dep1: IAlpha,
+    dep2: IBravo,
+    dep3: ICharlie,
+    dep4: IDelta,
+    dep5: IEcho,
+    dep6: IFoxtrot,
+    dep7: IGolf,
+    dep8: IHotel,
+    dep9: IIndia,
+    dep10: IJuliet,
+    dep11: IKilo,
+    dep12: ILima,
+    dep13: IMike,
+    dep14: INovember) =
+
+    member this.DoWork() = ()
+"""
+
+        let analyzed = analyzeSource source
+
+        let selection =
+            { Name = "CouplingBetweenObjects"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.ofList [ "maximum", "13" ] }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "CouplingBetweenObjects")
+        let violations = rule.Check analyzed selection
+        Assert.Single(violations) |> ignore
+        let v = violations.Head
+        Assert.Equal("Coupling count 14 exceeds maximum 13.", v.Description)
+
+    [<Fact>]
+    let ``coupling between objects excludes built in primitives and fsharp core types`` () =
+        let source =
+            """module TestBuiltins
+
+type BuiltinConsumer(
+    a: int,
+    b: string,
+    c: bool,
+    d: obj,
+    e: char,
+    f: byte,
+    g: int16,
+    h: int64,
+    i: float,
+    j: decimal,
+    k: System.DateTime,
+    l: System.Guid,
+    m: System.TimeSpan,
+    n: System.Exception,
+    o: Option<int>,
+    p: Result<int, string>,
+    q: int list) =
+
+    member this.Process() =
+        let opt = Some 42
+        let none = None
+        let res = Ok "success"
+        let err = Error "failure"
+        let list = [ 1; 2; 3 ]
+        let arr = [| 1; 2 |]
+        let m = Map.empty<string, int>
+        let s = Set.empty<int>
+        ()
+"""
+
+        let analyzed = analyzeSource source
+
+        let selection =
+            { Name = "CouplingBetweenObjects"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.ofList [ "maximum", "0" ] }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "CouplingBetweenObjects")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
