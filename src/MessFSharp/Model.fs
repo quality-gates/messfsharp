@@ -196,8 +196,7 @@ module Model =
                 let candidateIndent = indentation candidate
 
                 let unionContinuation =
-                    (kind = Type && trimmed.StartsWith("|", StringComparison.Ordinal))
-                    || (kind = Function && trimmed.StartsWith("and ", StringComparison.Ordinal))
+                    kind = Type && trimmed.StartsWith("|", StringComparison.Ordinal)
 
                 if candidateIndent <= startIndent && not unionContinuation then
                     result <- index
@@ -1237,52 +1236,52 @@ module Model =
                                             endLine
                                             declarationText
                                     )
-                                | None ->
-                                    let andMatch = andPattern.Match(line)
+                                | None -> ()
+                            else
+                                let andMatch = andPattern.Match(line)
 
-                                    if andMatch.Success then
-                                        match firstName andMatch.Groups[2].Value with
-                                        | Some name ->
-                                            let endLine = scopeEnd source lineNumber indent Function
-                                            let declarationText = sourceText source lineNumber endLine
+                                if andMatch.Success then
+                                    match firstName andMatch.Groups[2].Value with
+                                    | Some name ->
+                                        let endLine = scopeEnd source lineNumber indent Function
+                                        let declarationText = sourceText source lineNumber endLine
 
-                                            let parameterCount = parseParameterInfos declarationText name |> List.length
+                                        let parameterCount = parseParameterInfos declarationText name |> List.length
 
-                                            let parent = nearestParent (declarations |> Seq.toList) lineNumber
+                                        let parent = nearestParent (declarations |> Seq.toList) lineNumber
 
-                                            let moduleLevel =
-                                                match parent with
-                                                | Some parent when parent.Kind = Type -> false
-                                                | _ ->
-                                                    enclosingBody (declarations |> Seq.toList) lineNumber
-                                                    |> Option.isNone
+                                        let moduleLevel =
+                                            match parent with
+                                            | Some parent when parent.Kind = Type -> false
+                                            | _ ->
+                                                enclosingBody (declarations |> Seq.toList) lineNumber |> Option.isNone
 
-                                            declarations.Add(
-                                                makeDeclaration
-                                                    source
-                                                    name
-                                                    Function
-                                                    lineNumber
-                                                    (indent + 1)
-                                                    (parent |> Option.map (fun item -> item.Name))
-                                                    (parent |> Option.map (fun item -> item.Kind))
-                                                    ""
-                                                    false
-                                                    false
-                                                    false
-                                                    false
-                                                    false
-                                                    false
-                                                    true
-                                                    moduleLevel
-                                                    parameterCount
-                                                    lineNumber
-                                                    endLine
-                                                    lineNumber
-                                                    endLine
-                                                    declarationText
-                                            )
-                                        | None -> ()
+                                        declarations.Add(
+                                            makeDeclaration
+                                                source
+                                                name
+                                                Function
+                                                lineNumber
+                                                (indent + 1)
+                                                (parent |> Option.map (fun item -> item.Name))
+                                                (parent |> Option.map (fun item -> item.Kind))
+                                                ""
+                                                false
+                                                false
+                                                false
+                                                false
+                                                false
+                                                false
+                                                true
+                                                moduleLevel
+                                                parameterCount
+                                                lineNumber
+                                                endLine
+                                                lineNumber
+                                                endLine
+                                                declarationText
+                                        )
+                                    | None -> ()
 
         declarations |> Seq.toList
 
