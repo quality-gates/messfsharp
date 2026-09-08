@@ -155,3 +155,48 @@ module ReporterTests =
         let github = Reports.render GitHub false report
         Assert.Contains("::error file=src/<sample>&.fs,line=3,col=5,endLine=4,endColumn=9,title=ExampleRule::", github)
         Assert.Contains("::error file=src/<sample>&.fs,line=8,col=5,title=messfsharp::", github)
+
+    [<Fact>]
+    let ``GitHub annotations preserve colons and commas in message bodies but escape them in properties`` () =
+        let customReport =
+            { ToolName = "messfsharp"
+              Version = "1.0.0"
+              Violations =
+                [ { Location =
+                      { File = "src/comma,and:colon.fs"
+                        StartLine = 10
+                        StartColumn = 2
+                        EndLine = 10
+                        EndColumn = 20 }
+                    RuleName = "Rule:With,Punctuation"
+                    RulesetName = "ruleset"
+                    Priority = 1
+                    Description = "Message: has, colons, commas, % signs\r\nand newlines."
+                    Context =
+                      { Namespace = None
+                        Module = None
+                        Type = None
+                        Member = None }
+                    HelpUri = None } ]
+              Errors =
+                [ { File = Some "src/err,or:file.fs"
+                    Location =
+                      Some
+                          { File = "src/err,or:file.fs"
+                            StartLine = 5
+                            StartColumn = 1
+                            EndLine = 5
+                            EndColumn = 10 }
+                    Message = "Error: something, went wrong%." }
+                  { File = None
+                    Location = None
+                    Message = "Global error: note, please." } ] }
+
+        let rendered = Reports.render GitHub false customReport
+
+        Assert.Contains("file=src/comma%2Cand%3Acolon.fs", rendered)
+        Assert.Contains("title=Rule%3AWith%2CPunctuation", rendered)
+        Assert.Contains("file=src/err%2Cor%3Afile.fs", rendered)
+        Assert.Contains("::Message: has, colons, commas, %25 signs%0D%0Aand newlines.", rendered)
+        Assert.Contains("::Error: something, went wrong%25.", rendered)
+        Assert.Contains("::Global error: note, please.", rendered)
