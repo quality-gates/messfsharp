@@ -1275,6 +1275,85 @@ module Rules =
                         None)
                 |> Array.toList }
 
+    let private builtinCouplingNames =
+        set
+            [ "Object"
+              "obj"
+              "String"
+              "string"
+              "Boolean"
+              "bool"
+              "Byte"
+              "byte"
+              "SByte"
+              "sbyte"
+              "Char"
+              "char"
+              "Int16"
+              "int16"
+              "UInt16"
+              "uint16"
+              "Int32"
+              "int32"
+              "int"
+              "UInt32"
+              "uint32"
+              "uint"
+              "Int64"
+              "int64"
+              "UInt64"
+              "uint64"
+              "Single"
+              "single"
+              "float32"
+              "Double"
+              "double"
+              "float"
+              "Decimal"
+              "decimal"
+              "IntPtr"
+              "nativeint"
+              "UIntPtr"
+              "unativeint"
+              "Unit"
+              "unit"
+              "Void"
+              "void"
+              "DateTime"
+              "DateTimeOffset"
+              "TimeSpan"
+              "Guid"
+              "Math"
+              "Exception"
+              "exn"
+              "Option"
+              "ValueOption"
+              "Some"
+              "None"
+              "Result"
+              "Ok"
+              "Error"
+              "Choice"
+              "List"
+              "list"
+              "Array"
+              "array"
+              "Seq"
+              "seq"
+              "Map"
+              "Set"
+              "Async"
+              "Task"
+              "IDisposable"
+              "IComparable"
+              "IEquatable"
+              "System"
+              "Microsoft"
+              "FSharp"
+              "True"
+              "False"
+              "Null" ]
+
     let couplingBetweenObjects =
         { Name = "CouplingBetweenObjects"
           DefaultPriority = 3
@@ -1287,13 +1366,29 @@ module Rules =
                 file.Declarations
                 |> List.filter (fun declaration -> declaration.Kind = Type && declaration.IsClassLike)
                 |> List.choose (fun declaration ->
+                    let ownNames =
+                        file.Declarations
+                        |> List.filter (fun child ->
+                            child.Parent = Some declaration.Name
+                            || (child.Location.StartLine >= declaration.Location.StartLine
+                                && child.Location.StartLine <= declaration.ScopeEndLine
+                                && child.Kind <> Type))
+                        |> List.map (fun child -> child.Name)
+                        |> Set.ofList
+                        |> Set.add declaration.Name
+
                     let names =
-                        Regex.Matches(declaration.Text, "\\b[A-Z][A-Za-z0-9_']*\\b")
-                        |> Seq.cast<Match>
-                        |> Seq.map (fun item -> item.Value)
-                        |> Seq.filter (fun name -> name <> declaration.Name)
-                        |> Seq.distinct
-                        |> Seq.length
+                        file.Tokens
+                        |> Array.filter (fun token ->
+                            token.Line >= declaration.Location.StartLine
+                            && token.Line <= declaration.ScopeEndLine
+                            && token.Kind = Identifier
+                            && Regex.IsMatch(token.Text, "^[A-Z][A-Za-z0-9_']*$"))
+                        |> Array.map (fun token -> token.Text)
+                        |> Array.filter (fun name ->
+                            not (Set.contains name ownNames) && not (Set.contains name builtinCouplingNames))
+                        |> Array.distinct
+                        |> Array.length
 
                     if names > maximum then
                         Some(
