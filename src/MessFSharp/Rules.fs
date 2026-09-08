@@ -102,6 +102,39 @@ module Rules =
     let private allDeclarations (file: AnalyzedFile) (predicate: Declaration -> bool) =
         file.Declarations |> List.filter predicate
 
+    let private exitDefinitionKeywords =
+        set
+            [ "abstract"
+              "and"
+              "default"
+              "fun"
+              "inline"
+              "let"
+              "member"
+              "mutable"
+              "override"
+              "private"
+              "internal"
+              "public"
+              "rec"
+              "val" ]
+
+    let private isExitArgumentStart (token: SyntaxToken) =
+        token.Kind = Identifier
+        || token.Kind = Number
+        || token.Text = "("
+        || (token.Kind = Operator && token.Text = "-")
+
+    let private isExitBindingOrMemberToken (tokens: SyntaxToken array) index =
+        if index = 0 then
+            false
+        else
+            let token = tokens[index]
+            let previous = tokens[index - 1]
+
+            previous.Text = "."
+            || (previous.Line = token.Line && Set.contains previous.Text exitDefinitionKeywords)
+
     let private metric (map: Map<string * int, int>) (declaration: Declaration) =
         Map.tryFind (declaration.Name, declaration.Location.StartLine) map
         |> Option.defaultValue 0
@@ -1399,25 +1432,45 @@ module Rules =
           Description = "Reports process-exit expressions selected by the design policy."
           Check =
             fun file selection ->
-                file.Tokens
+                let tokens = file.Tokens
+
+                let tokenIsAt offset text =
+                    offset < tokens.Length && tokens[offset].Text = text
+
+                let hasExitArgument exitIndex =
+                    exitIndex + 1 < tokens.Length && isExitArgumentStart tokens[exitIndex + 1]
+
+                tokens
                 |> Array.mapi (fun index token -> index, token)
                 |> Array.choose (fun (index, token) ->
-                    let hasNext text =
-                        index + 1 < file.Tokens.Length && file.Tokens[index + 1].Text = text
-
                     let isExitCall =
                         token.Kind = Identifier
                         && token.Text = "exit"
-                        && (hasNext "("
-                            || (index + 1 < file.Tokens.Length && file.Tokens[index + 1].Kind = Number))
+                        && not (isExitBindingOrMemberToken tokens index)
+                        && hasExitArgument index
 
                     let isEnvironmentExitCall =
-                        index + 3 < file.Tokens.Length
-                        && token.Kind = Identifier
-                        && token.Text = "Environment"
-                        && file.Tokens[index + 1].Text = "."
-                        && file.Tokens[index + 2].Text = "Exit"
-                        && file.Tokens[index + 3].Text = "("
+                        let isRootedEnvironmentPath = index = 0 || tokens[index - 1].Text <> "."
+
+                        let isEnvironmentExit =
+                            token.Kind = Identifier
+                            && token.Text = "Environment"
+                            && isRootedEnvironmentPath
+                            && tokenIsAt (index + 1) "."
+                            && tokenIsAt (index + 2) "Exit"
+                            && hasExitArgument (index + 2)
+
+                        let isSystemEnvironmentExit =
+                            token.Kind = Identifier
+                            && token.Text = "System"
+                            && isRootedEnvironmentPath
+                            && tokenIsAt (index + 1) "."
+                            && tokenIsAt (index + 2) "Environment"
+                            && tokenIsAt (index + 3) "."
+                            && tokenIsAt (index + 4) "Exit"
+                            && hasExitArgument (index + 4)
+
+                        isEnvironmentExit || isSystemEnvironmentExit
 
                     if isExitCall || isEnvironmentExitCall then
                         Some(
