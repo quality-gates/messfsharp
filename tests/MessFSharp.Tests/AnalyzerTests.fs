@@ -1095,6 +1095,68 @@ let check (a: bool) (b: bool) =
         Assert.Empty(violations)
 
     [<Fact>]
+    let ``attributes on the declaration line itself are collected`` () =
+        // F# only allows same-line attributes on module-level let bindings when
+        // nothing follows them in the module body, so each case is a minimal source.
+        let literalDeclaration =
+            analyzeSource
+                """module TestSameLineLiteral
+[<Literal>] let MAX_SIZE = 10
+"""
+
+        Assert.True(
+            (literalDeclaration.Declarations
+             |> List.find (fun declaration -> declaration.Name = "MAX_SIZE"))
+                .IsLiteral
+        )
+
+        let compilerGeneratedDeclaration =
+            analyzeSource
+                """module TestSameLineCompilerGenerated
+[<CompilerGenerated>] let generated = 2
+"""
+
+        Assert.True(
+            (compilerGeneratedDeclaration.Declarations
+             |> List.find (fun declaration -> declaration.Name = "generated"))
+                .IsCompilerGenerated
+        )
+
+        let suppressedDeclaration =
+            analyzeSource
+                """module TestSameLineSuppression
+open System.Diagnostics.CodeAnalysis
+
+type Handler() =
+    [<SuppressMessage("messfsharp", "LongMethod")>] member this.SuppressedMethod() = 1
+    member this.PlainMethod() = 2
+"""
+
+        Assert.Equal<string>(
+            Set.ofList [ "LongMethod" ],
+            (suppressedDeclaration.Declarations
+             |> List.find (fun declaration -> declaration.Name = "SuppressedMethod"))
+                .SuppressedRules
+        )
+
+        let multilineDeclaration =
+            analyzeSource
+                """module TestMultilineAttributes
+open System.Diagnostics.CodeAnalysis
+
+[<SuppressMessage("messfsharp", "ShortVariable")>]
+[<Literal>]
+let bothLines = 3
+"""
+
+        let bothLines =
+            multilineDeclaration.Declarations
+            |> List.find (fun declaration -> declaration.Name = "bothLines")
+
+        Assert.Equal<string>(Set.ofList [ "ShortVariable" ], bothLines.SuppressedRules)
+        Assert.True(bothLines.IsLiteral)
+
+    [<Fact>]
     let ``suppress message on let binding with preceding attribute suppresses rule violation`` () =
         let source =
             """module TestSuppression
@@ -1102,6 +1164,26 @@ open System.Diagnostics.CodeAnalysis
 
 [<SuppressMessage("messfsharp", "ShortVariable")>]
 let v = 1
+"""
+
+        let tempFile =
+            Path.Combine(Path.GetTempPath(), $"messfsharp-suppress-{Guid.NewGuid()}.fs")
+
+        try
+            File.WriteAllText(tempFile, source)
+            let result = Engine.run "0.1.0" (options [ tempFile ] [ "naming" ] Json)
+            Assert.Empty(result.Report.Errors)
+            Assert.Empty(result.Report.Violations)
+        finally
+            File.Delete(tempFile)
+
+    [<Fact>]
+    let ``suppress message on the declaration line itself suppresses rule violation`` () =
+        let source =
+            """module TestSameLineSuppression
+open System.Diagnostics.CodeAnalysis
+
+[<SuppressMessage("messfsharp", "ShortVariable")>] let v = 1
 """
 
         let tempFile =
