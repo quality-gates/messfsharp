@@ -1008,6 +1008,51 @@ let myMap =
         Assert.Single(violations) |> ignore
 
     [<Fact>]
+    let ``duplicated array key keeps entries after nested brackets`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMap
+let nestedList =
+    Map.ofList
+        [ "dup", [ 1 ]
+          "dup", [ 2 ] ]
+
+let nestedArray =
+    Map.ofArray
+        [| "dup", [| 1 |]
+           "dup", [| 2 |] |]
+
+let indexedValue =
+    let values = [| 1; 2 |]
+    Map.ofList
+        [ "dup", values.[0]
+          "dup", values.[1] ]
+
+let dictionary =
+    dict
+        [ "dup", [| 1 |]
+          "dup", [| 2 |] ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+
+        Assert.Equal(4, violations.Length)
+
+        Assert.Equal<int list>(
+            [ 3; 8; 14; 19 ],
+            violations
+            |> List.map (fun violation -> violation.Location.StartLine)
+            |> List.sort
+        )
+
+    [<Fact>]
     let ``duplicated array key ignores nested collections containing semicolons`` () =
         let analyzed =
             analyzeSource
