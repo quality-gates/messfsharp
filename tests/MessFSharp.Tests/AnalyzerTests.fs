@@ -697,3 +697,77 @@ type BuiltinConsumer(
         let rule = Rules.all |> List.find (fun r -> r.Name = "CouplingBetweenObjects")
         let violations = rule.Check analyzed selection
         Assert.Empty(violations)
+
+    [<Fact>]
+    let ``boolean get method name does not flag non-boolean methods containing boolean literals or comments`` () =
+        let analyzed =
+            analyzeSource
+                """module TestBooleanMethods
+type Service =
+    // Returns timeout in ms. Default is true in legacy config.
+    member this.GetTimeout() : int =
+        let useDefault = true
+        if useDefault then 5000 else 1000
+
+    member this.GetMessage() : string =
+        "true"
+
+    member this.GetTimeoutWithParam(flag: bool) : int =
+        if flag then 5000 else 1000
+
+    // Genuine boolean methods should still be flagged
+    member this.GetIsValid() : bool =
+        true
+
+    member this.GetHasPermission() : Boolean =
+        true
+
+    abstract member GetEnabled: unit -> bool
+"""
+
+        let timeoutDecl =
+            analyzed.Declarations |> List.find (fun d -> d.Name = "GetTimeout")
+
+        let messageDecl =
+            analyzed.Declarations |> List.find (fun d -> d.Name = "GetMessage")
+
+        let paramDecl =
+            analyzed.Declarations |> List.find (fun d -> d.Name = "GetTimeoutWithParam")
+
+        let validDecl = analyzed.Declarations |> List.find (fun d -> d.Name = "GetIsValid")
+
+        let permissionDecl =
+            analyzed.Declarations |> List.find (fun d -> d.Name = "GetHasPermission")
+
+        let enabledDecl =
+            analyzed.Declarations |> List.find (fun d -> d.Name = "GetEnabled")
+
+        Assert.False(timeoutDecl.IsBoolean)
+        Assert.False(messageDecl.IsBoolean)
+        Assert.False(paramDecl.IsBoolean)
+        Assert.True(validDecl.IsBoolean)
+        Assert.True(permissionDecl.IsBoolean)
+        Assert.True(enabledDecl.IsBoolean)
+
+        let selection =
+            { Name = "BooleanGetMethodName"
+              RulesetName = "fsharp"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "BooleanGetMethodName")
+        let violations = rule.Check analyzed selection
+
+        let violationNames =
+            violations
+            |> List.choose (fun v ->
+                // extract member name from "Boolean member '...' should use..."
+                let m = System.Text.RegularExpressions.Regex.Match(v.Description, "'([^']+)'")
+                if m.Success then Some m.Groups[1].Value else None)
+
+        Assert.DoesNotContain("GetTimeout", violationNames)
+        Assert.DoesNotContain("GetMessage", violationNames)
+        Assert.DoesNotContain("GetTimeoutWithParam", violationNames)
+        Assert.Contains("GetIsValid", violationNames)
+        Assert.Contains("GetHasPermission", violationNames)
+        Assert.Contains("GetEnabled", violationNames)

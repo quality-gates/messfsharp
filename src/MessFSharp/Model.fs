@@ -264,8 +264,137 @@ module Model =
         attributes.IndexOf("CompilerGenerated", StringComparison.OrdinalIgnoreCase) >= 0
 
     let private isBooleanText (text: string) =
-        Regex.IsMatch(text, "(?i)(:|->)\\s*bool\\b")
-        || Regex.IsMatch(text, "(?i)\\b(true|false)\\b")
+        let sourceForText =
+            { FullPath = "<declaration>"
+              Kind = Implementation
+              Text = text
+              Lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n') }
+
+        let tokens = Scanner.scan sourceForText
+
+        let isBoolName (name: string) =
+            name.Equals("bool", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Boolean", StringComparison.OrdinalIgnoreCase)
+
+        let isBoolTypeTokens (toks: SyntaxToken array) =
+            let unparenthesized = toks |> Array.filter (fun t -> t.Text <> "(" && t.Text <> ")")
+
+            match unparenthesized with
+            | [| t |] when isBoolName t.Text -> true
+            | [| sys; dot; b |] when sys.Text = "System" && dot.Text = "." && isBoolName b.Text -> true
+            | _ -> false
+
+        // Look for top-level '=' outside parentheses, brackets, and braces
+        let mutable parenDepth = 0
+        let mutable bracketDepth = 0
+        let mutable braceDepth = 0
+        let mutable equalsIndex = -1
+
+        let mutable i = 0
+
+        while i < tokens.Length && equalsIndex < 0 do
+            match tokens[i].Text with
+            | "(" -> parenDepth <- parenDepth + 1
+            | ")" ->
+                if parenDepth > 0 then
+                    parenDepth <- parenDepth - 1
+            | "[" -> bracketDepth <- bracketDepth + 1
+            | "]" ->
+                if bracketDepth > 0 then
+                    bracketDepth <- bracketDepth - 1
+            | "{" -> braceDepth <- braceDepth + 1
+            | "}" ->
+                if braceDepth > 0 then
+                    braceDepth <- braceDepth - 1
+            | "=" when parenDepth = 0 && bracketDepth = 0 && braceDepth = 0 -> equalsIndex <- i
+            | _ -> ()
+
+            i <- i + 1
+
+        if equalsIndex >= 0 then
+            // Look for top-level ':' before '='
+            let mutable colonIndex = -1
+            parenDepth <- 0
+            bracketDepth <- 0
+            braceDepth <- 0
+
+            for j in 0 .. equalsIndex - 1 do
+                match tokens[j].Text with
+                | "(" -> parenDepth <- parenDepth + 1
+                | ")" ->
+                    if parenDepth > 0 then
+                        parenDepth <- parenDepth - 1
+                | "[" -> bracketDepth <- bracketDepth + 1
+                | "]" ->
+                    if bracketDepth > 0 then
+                        bracketDepth <- bracketDepth - 1
+                | "{" -> braceDepth <- braceDepth + 1
+                | "}" ->
+                    if braceDepth > 0 then
+                        braceDepth <- braceDepth - 1
+                | ":" when parenDepth = 0 && bracketDepth = 0 && braceDepth = 0 -> colonIndex <- j
+                | _ -> ()
+
+            if colonIndex >= 0 then
+                let returnTypeTokens = tokens[colonIndex + 1 .. equalsIndex - 1]
+
+                if isBoolTypeTokens returnTypeTokens then
+                    true
+                else
+                    let lastArrow = returnTypeTokens |> Array.tryFindIndexBack (fun t -> t.Text = "->")
+
+                    match lastArrow with
+                    | Some idx when idx + 1 < returnTypeTokens.Length -> isBoolTypeTokens returnTypeTokens[idx + 1 ..]
+                    | _ -> false
+            else
+                // No return type annotation before '='.
+                // Check if the body immediately returns true or false
+                let bodyTokens = tokens[equalsIndex + 1 ..]
+
+                if
+                    bodyTokens.Length > 0
+                    && bodyTokens[0].Kind = Keyword
+                    && (bodyTokens[0].Text = "true" || bodyTokens[0].Text = "false")
+                then
+                    if bodyTokens.Length > 1 && bodyTokens[1].Text = "." then
+                        false
+                    else
+                        true
+                else
+                    false
+        else
+            // No '=': abstract member, signature line, or parameter annotation
+            let lastArrow = tokens |> Array.tryFindIndexBack (fun t -> t.Text = "->")
+
+            match lastArrow with
+            | Some idx when idx + 1 < tokens.Length -> isBoolTypeTokens tokens[idx + 1 ..]
+            | _ ->
+                let mutable colonIndex = -1
+                parenDepth <- 0
+                bracketDepth <- 0
+                braceDepth <- 0
+
+                for j in 0 .. tokens.Length - 1 do
+                    match tokens[j].Text with
+                    | "(" -> parenDepth <- parenDepth + 1
+                    | ")" ->
+                        if parenDepth > 0 then
+                            parenDepth <- parenDepth - 1
+                    | "[" -> bracketDepth <- bracketDepth + 1
+                    | "]" ->
+                        if bracketDepth > 0 then
+                            bracketDepth <- bracketDepth - 1
+                    | "{" -> braceDepth <- braceDepth + 1
+                    | "}" ->
+                        if braceDepth > 0 then
+                            braceDepth <- braceDepth - 1
+                    | ":" when parenDepth = 0 && bracketDepth = 0 && braceDepth = 0 -> colonIndex <- j
+                    | _ -> ()
+
+                if colonIndex >= 0 && colonIndex + 1 < tokens.Length then
+                    isBoolTypeTokens tokens[colonIndex + 1 ..]
+                else
+                    false
 
     let private signatureParameterCount (line: string) =
         let arrowCount = Regex.Matches(line, "->").Count
@@ -419,7 +548,10 @@ module Model =
                         | ">" when angleDepth > 0 -> angleDepth <- angleDepth - 1
                         | _ when angleDepth > 0 -> ()
                         | _ when inType ->
-                            if token.Text.Equals("bool", StringComparison.OrdinalIgnoreCase) then
+                            if
+                                token.Text.Equals("bool", StringComparison.OrdinalIgnoreCase)
+                                || token.Text.Equals("Boolean", StringComparison.OrdinalIgnoreCase)
+                            then
                                 currentIsBoolean <- true
                         | _ when token.Kind = Identifier ->
                             let value = token.Text.Trim('`')
