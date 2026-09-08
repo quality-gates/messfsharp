@@ -531,6 +531,22 @@ type Service() =
         )
 
     [<Fact>]
+    let ``exit expressions distinguish definitions member calls and idiomatic process exits`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "issue-33-exit-cases.fs" ] [ fixture "exit-ruleset.xml" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let exitViolations =
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = "ExitExpression")
+
+        Assert.Equal<int list>(
+            [ 14; 15; 16; 17 ],
+            exitViolations |> List.map (fun violation -> violation.Location.StartLine)
+        )
+
+    [<Fact>]
     let ``double-backtick identifiers with spaces are scanned and reference counted`` () =
         let analyzed =
             analyzeSource
