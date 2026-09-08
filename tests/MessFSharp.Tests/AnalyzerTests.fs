@@ -1276,6 +1276,26 @@ let check (a: bool) (b: bool) =
         Assert.Empty(violations)
 
     [<Fact>]
+    let ``else expression does not treat string literals or comments as terminating`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                { Defaults.analysisOptions with
+                    Paths = [ fixture "issue-34-else-string.fs" ]
+                    Rulesets = [ "cleancode" ]
+                    Format = Json
+                    Only = [ "ElseExpression" ] }
+
+        Assert.Empty(result.Report.Errors)
+
+        let elseLines =
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = "ElseExpression")
+            |> List.map (fun violation -> violation.Location.StartLine)
+
+        Assert.Equal<int list>([ 39; 46; 53; 56 ], elseLines)
+
+    [<Fact>]
     let ``attributes on the declaration line itself are collected`` () =
         // F# only allows same-line attributes on module-level let bindings when
         // nothing follows them in the module body, so each case is a minimal source.

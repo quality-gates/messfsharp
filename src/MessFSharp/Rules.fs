@@ -247,8 +247,26 @@ module Rules =
         || exceptions
            |> List.exists (fun exceptionName -> String.Equals(exceptionName, name, StringComparison.Ordinal))
 
-    let private hasTerminatingExpression (text: string) =
-        Regex.IsMatch(text, "(?i)\\b(?:failwith|raise|Environment\\.Exit)\\b")
+    let private isTerminatingIdentifier (token: SyntaxToken) =
+        token.Kind = Identifier
+        && (String.Equals(token.Text, "failwith", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(token.Text, "raise", StringComparison.OrdinalIgnoreCase))
+
+    let private isEnvironmentExit (tokens: SyntaxToken array) index =
+        index + 2 < tokens.Length
+        && tokens[index].Kind = Identifier
+        && String.Equals(tokens[index].Text, "Environment", StringComparison.OrdinalIgnoreCase)
+        && tokens[index + 1].Text = "."
+        && tokens[index + 2].Kind = Identifier
+        && String.Equals(tokens[index + 2].Text, "Exit", StringComparison.OrdinalIgnoreCase)
+
+    let private hasTerminatingExpression (tokens: SyntaxToken array) =
+        tokens
+        |> Array.mapi (fun index token -> index, token)
+        |> Array.exists (fun (index, token) -> isTerminatingIdentifier token || isEnvironmentExit tokens index)
+
+    let private tokensOnLine (file: AnalyzedFile) lineNumber =
+        file.Tokens |> Array.filter (fun token -> token.Line = lineNumber)
 
     let private isElseFlattenable (file: AnalyzedFile) lineNumber column =
         let currentLine = file.Source.Lines[lineNumber - 1]
@@ -256,11 +274,23 @@ module Rules =
         let currentPrefix = currentLine.Substring(0, prefixLength)
 
         if not (String.IsNullOrWhiteSpace currentPrefix) then
-            Regex.IsMatch(currentPrefix, "(?i)\\bthen\\b[\\s\\S]*\\b(?:failwith|raise|Environment\\.Exit)\\b")
+            let prefixTokens =
+                tokensOnLine file lineNumber
+                |> Array.filter (fun token -> token.Column < column)
+
+            match
+                prefixTokens
+                |> Array.tryFindBack (fun token -> token.Kind = Keyword && token.Text = "then")
+            with
+            | None -> false
+            | Some thenToken ->
+                prefixTokens
+                |> Array.filter (fun token -> token.Column > thenToken.Column)
+                |> hasTerminatingExpression
         else
             let elseIndent = lineIndent currentLine
             let mutable index = lineNumber - 2
-            let collected = ResizeArray<string>()
+            let collected = ResizeArray<int * string>()
             let mutable stopped = false
 
             while index >= 0 && not stopped do
@@ -271,7 +301,7 @@ module Rules =
                     && not (line.TrimStart().StartsWith("//", StringComparison.Ordinal))
                 then
                     let indent = lineIndent line
-                    collected.Add(line)
+                    collected.Add(index + 1, line)
 
                     if indent <= elseIndent && Regex.IsMatch(line.TrimStart(), "^(?:if|elif)\\b") then
                         stopped <- true
@@ -281,19 +311,23 @@ module Rules =
                 index <- index - 1
 
             let nonBlankLines =
-                collected |> Seq.filter (fun line -> lineIndent line > elseIndent) |> Seq.toList
+                collected
+                |> Seq.filter (fun (_, line) -> lineIndent line > elseIndent)
+                |> Seq.toList
 
             if nonBlankLines.IsEmpty then
                 false
             else
-                let thenIndent = nonBlankLines |> List.map lineIndent |> List.min
+                let thenIndent =
+                    nonBlankLines |> List.map (fun (_, line) -> lineIndent line) |> List.min
 
                 let lastTopLevelStatement =
                     nonBlankLines
-                    |> List.filter (fun line -> lineIndent line = thenIndent)
+                    |> List.filter (fun (_, line) -> lineIndent line = thenIndent)
                     |> List.tryHead
 
-                lastTopLevelStatement |> Option.exists hasTerminatingExpression
+                lastTopLevelStatement
+                |> Option.exists (fun (statementLine, _) -> tokensOnLine file statementLine |> hasTerminatingExpression)
 
     let private linesInsideLoops (file: AnalyzedFile) =
         let lines = file.Source.Lines
