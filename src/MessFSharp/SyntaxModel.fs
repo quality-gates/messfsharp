@@ -26,6 +26,7 @@ module SyntaxModel =
     type Facts =
         { Declarations: DeclarationFact list
           Expressions: NormalizedExpression list
+          ExceptionHandlerClauses: SourceLocation list
           LexicalScopes: LexicalScope list
           References: SyntacticReference list }
 
@@ -169,14 +170,21 @@ module SyntaxModel =
 
             { scope with Parent = parent })
 
+    let private identifierName (identifiers: LongIdent) =
+        identifiers
+        |> List.map (fun identifier -> identifier.idText)
+        |> String.concat "."
+
+    let private handlerClauseLocations fileName (expression: SynExpr) =
+        match expression with
+        | SynExpr.TryWith(withCases = clauses) -> clauses |> List.map (fun clause -> location fileName clause.Range)
+        | _ -> []
+
     let normalize fileName (parsedInput: ParsedInput) =
-        let folder (declarations, expressions, scopes, references) _ node =
+        let folder (declarations, expressions, handlerClauses, scopes, references) _ node =
             match node with
             | SyntaxNode.SynModuleOrNamespace(SynModuleOrNamespace(longId = identifiers; kind = kind; range = nodeRange)) ->
-                let name =
-                    identifiers
-                    |> List.map (fun identifier -> identifier.idText)
-                    |> String.concat "."
+                let name = identifierName identifiers
 
                 let factKind =
                     match kind with
@@ -194,6 +202,7 @@ module SyntaxModel =
 
                 fact :: declarations,
                 expressions,
+                handlerClauses,
                 { Location = fact.Location
                   Parent = None }
                 :: scopes,
@@ -201,10 +210,7 @@ module SyntaxModel =
             | SyntaxNode.SynTypeDefn(SynTypeDefn(
                 typeInfo = SynComponentInfo(longId = identifiers); typeRepr = representation; range = nodeRange)) ->
                 let fact =
-                    { Name =
-                        identifiers
-                        |> List.map (fun identifier -> identifier.idText)
-                        |> String.concat "."
+                    { Name = identifierName identifiers
                       Kind = TypeFact(typeShape representation)
                       Location = location fileName nodeRange
                       IsMutable = false
@@ -213,6 +219,7 @@ module SyntaxModel =
 
                 fact :: declarations,
                 expressions,
+                handlerClauses,
                 { Location = fact.Location
                   Parent = None }
                 :: scopes,
@@ -232,17 +239,18 @@ module SyntaxModel =
 
                     fact :: declarations,
                     expressions,
+                    handlerClauses,
                     { Location = fact.Location
                       Parent = None }
                     :: scopes,
                     references
-                | None -> declarations, expressions, scopes, references
+                | None -> declarations, expressions, handlerClauses, scopes, references
             | SyntaxNode.SynMatchClause clause ->
                 let expression =
                     { Kind = MatchClauseExpression
                       Location = location fileName clause.Range }
 
-                declarations, expression :: expressions, scopes, references
+                declarations, expression :: expressions, handlerClauses, scopes, references
             | SyntaxNode.SynExpr expression ->
                 let normalized =
                     { Kind = expressionKind expression
@@ -264,14 +272,17 @@ module SyntaxModel =
                         :: references
                     | None -> references
 
-                declarations, normalized :: expressions, nextScopes, nextReferences
-            | _ -> declarations, expressions, scopes, references
+                let nextHandlerClauses = handlerClauseLocations fileName expression
 
-        let declarations, expressions, scopes, references =
-            ParsedInput.fold folder ([], [], [], []) parsedInput
+                declarations, normalized :: expressions, nextHandlerClauses @ handlerClauses, nextScopes, nextReferences
+            | _ -> declarations, expressions, handlerClauses, scopes, references
+
+        let declarations, expressions, handlerClauses, scopes, references =
+            ParsedInput.fold folder ([], [], [], [], []) parsedInput
 
         { Declarations = declarations |> List.rev
           Expressions = expressions |> List.rev
+          ExceptionHandlerClauses = handlerClauses |> List.rev
           LexicalScopes =
             scopes
             |> List.distinctBy (fun (scope: LexicalScope) -> scope.Location)

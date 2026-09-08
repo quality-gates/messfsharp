@@ -430,6 +430,113 @@ count <- 1
         Assert.NotEmpty(violations)
 
     [<Fact>]
+    let ``pattern match cases returning unit after try are not reported as empty handlers`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let run status =
+    try
+        printfn "working"
+    finally
+        printfn "cleaning"
+
+    match status
+    with
+    | None -> ()
+    | Some value -> printfn "%A" value
+"""
+
+        let selection =
+            { Name = "EmptyCatchBlock"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``pattern match cases returning unit after try with are not reported as empty handlers`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let run status =
+    try
+        printfn "working"
+    with
+    | _ -> printfn "failed"
+
+    match status
+    with
+    | None -> ()
+    | Some value -> printfn "%A" value
+"""
+
+        let selection =
+            { Name = "EmptyCatchBlock"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``unit match clauses nested inside try bodies are not reported as empty handlers`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let run status =
+    try
+        match status
+        with
+        | None -> ()
+        | Some value -> printfn "%A" value
+    with
+    | _ -> ()
+"""
+
+        let selection =
+            { Name = "EmptyCatchBlock"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
+        let violations = rule.Check analyzed selection
+        Assert.Single(violations) |> ignore
+        Assert.Equal(10, violations[0].Location.StartLine)
+
+    [<Fact>]
+    let ``unit exception handler clauses inside try with are still reported`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let run status =
+    try
+        printfn "working"
+    with
+    | _ -> ()
+"""
+
+        let selection =
+            { Name = "EmptyCatchBlock"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
+        let violations = rule.Check analyzed selection
+
+        Assert.Contains(violations, fun violation -> violation.Location.StartLine = 7)
+
+    [<Fact>]
     let ``interpolated string holes are scanned and referenced bindings are not unused`` () =
         let analyzed =
             analyzeSource
