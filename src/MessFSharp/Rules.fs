@@ -1259,6 +1259,22 @@ module Rules =
                         None)
                 |> Array.toList }
 
+    let private opensBracket (text: string) = text = "(" || text = "[" || text = "{"
+
+    let private closesBracket (text: string) = text = ")" || text = "]" || text = "}"
+
+    let private leadingCount (text: string) (character: char) =
+        let mutable count = 0
+
+        while count < text.Length && text[count] = character do
+            count <- count + 1
+
+        count
+
+    let private isTypeAnnotation (token: SyntaxToken) =
+        token.Kind = Operator
+        && (token.Text = ":" || token.Text = ":?" || token.Text = ":?>")
+
     let staticAccess =
         { Name = "StaticAccess"
           DefaultPriority = 3
@@ -1268,8 +1284,54 @@ module Rules =
             fun file selection ->
                 let tokens = file.Tokens
 
+                // A qualified System./Microsoft. prefix is only static access in an expression
+                // position; in declarations, type annotations, and attributes the same tokens
+                // name a namespace instead. State walks the token stream to tell them apart.
+                let mutable inAttribute = false
+                let mutable attributeParenDepth = 0
+                let mutable inType = false
+                let mutable typeDepth = 0
+
                 tokens
                 |> Array.mapi (fun i token ->
+                    if token.Text = "[" && i + 1 < tokens.Length && tokens[i + 1].Text = "<" then
+                        inAttribute <- true
+                        attributeParenDepth <- 0
+                    elif
+                        inAttribute
+                        && token.Text = ">"
+                        && attributeParenDepth = 0
+                        && i + 1 < tokens.Length
+                        && tokens[i + 1].Text = "]"
+                    then
+                        inAttribute <- false
+                    elif inAttribute && opensBracket token.Text then
+                        attributeParenDepth <- attributeParenDepth + 1
+                    elif inAttribute && closesBracket token.Text then
+                        attributeParenDepth <- max 0 (attributeParenDepth - 1)
+                    elif isTypeAnnotation token then
+                        inType <- true
+                        typeDepth <- 0
+                    elif inType then
+                        if token.Text = "=" && typeDepth = 0 then
+                            inType <- false
+                        elif token.Kind = Punctuation && opensBracket token.Text then
+                            typeDepth <- typeDepth + 1
+                        elif token.Kind = Punctuation && closesBracket token.Text && typeDepth = 0 then
+                            inType <- false
+                        elif token.Kind = Punctuation && closesBracket token.Text then
+                            typeDepth <- typeDepth - 1
+                        elif token.Kind = Operator && token.Text.StartsWith("<", StringComparison.Ordinal) then
+                            typeDepth <- typeDepth + leadingCount token.Text '<'
+                        elif token.Kind = Operator && token.Text.StartsWith(">", StringComparison.Ordinal) then
+                            let depth = typeDepth - leadingCount token.Text '>'
+
+                            if depth < 0 then
+                                inType <- false
+                                typeDepth <- 0
+                            else
+                                typeDepth <- depth
+
                     if
                         i + 4 < tokens.Length
                         && (token.Text = "System" || token.Text = "Microsoft")
@@ -1278,7 +1340,15 @@ module Rules =
                         && startsWithUpper tokens[i + 2].Text
                         && tokens[i + 3].Text = "."
                         && tokens[i + 4].Kind = Identifier
-                        && not (i > 0 && tokens[i - 1].Text = "open" && tokens[i - 1].Kind = Keyword)
+                        && not (
+                            i > 0
+                            && tokens[i - 1].Kind = Keyword
+                            && (tokens[i - 1].Text = "open"
+                                || tokens[i - 1].Text = "namespace"
+                                || tokens[i - 1].Text = "module")
+                        )
+                        && not inAttribute
+                        && not inType
                     then
                         Some(
                             violation

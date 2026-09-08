@@ -1052,6 +1052,126 @@ let run () = 42
         Assert.Empty(violations)
 
     [<Fact>]
+    let ``static access does not flag namespace declarations`` () =
+        let analyzed =
+            analyzeSource
+                """namespace System.Collections.Specialized
+
+module Helpers =
+    let run () = 42
+"""
+
+        let selection =
+            { Name = "StaticAccess"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``static access does not flag module declarations`` () =
+        let analyzed =
+            analyzeSource
+                """module Microsoft.FSharp.Utilities
+
+let run () = 42
+"""
+
+        let selection =
+            { Name = "StaticAccess"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``static access does not flag type annotations on parameters return types and bindings`` () =
+        let analyzed =
+            analyzeSource
+                """module TestAnnotations
+let processItems (items: System.Collections.Generic.List<int>) = items.Count
+let loadReader () : System.IO.StreamReader = failwith "no"
+let cache: System.Collections.Concurrent.ConcurrentDictionary<string, int> = failwith "no"
+let nested: System.Collections.Generic.List<System.Collections.Generic.Queue<int>> = failwith "no"
+"""
+
+        let selection =
+            { Name = "StaticAccess"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``static access does not flag attribute applications`` () =
+        let analyzed =
+            analyzeSource
+                """module TestAttributes
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("Category", "CheckId")>]
+let suppressed () = 42
+
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("Category", "CheckId")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("Category", "OtherCheckId")>]
+let alsoSuppressed () = 43
+"""
+
+        let selection =
+            { Name = "StaticAccess"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``static access suppression attributes do not leave unsuppressable violations`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "static-access-suppressed.fs" ] [ "cleancode" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        Assert.DoesNotContain(result.Report.Violations, fun violation -> violation.RuleName = "StaticAccess")
+
+    [<Fact>]
+    let ``static access still flags static member and property invocations`` () =
+        let analyzed =
+            analyzeSource
+                """module TestStaticAccess
+let now () = System.DateTime.UtcNow
+let read () = System.IO.File.ReadAllText("input.txt")
+let annotated (value: int) = value
+"""
+
+        let selection =
+            { Name = "StaticAccess"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
+        let violations = rule.Check analyzed selection
+        Assert.Equal(2, violations |> List.length)
+
+        Assert.Equal(
+            2,
+            violations
+            |> List.map (fun violation -> violation.Location.StartLine)
+            |> List.distinct
+            |> List.length
+        )
+
+    [<Fact>]
     let ``boolean argument flag does not match unanchored substring use in words like isUser or paused`` () =
         let analyzed =
             analyzeSource
