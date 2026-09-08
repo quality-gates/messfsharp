@@ -13,18 +13,22 @@ module Discovery =
     let private isAlwaysExcludedDirectory (directory: DirectoryInfo) =
         alwaysExcludedDirectoryNames.Contains(directory.Name.ToLowerInvariant())
 
-    let private isIgnoredTestPath (path: string) =
+    let private isIgnoredTestDirectoryName (part: string) =
+        part.EndsWith("Tests", StringComparison.OrdinalIgnoreCase)
+        || part.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
+
+    let private isIgnoredTestPath (root: string) (path: string) =
         let fileName = Path.GetFileName(path)
 
         let fileIgnored =
             [ "Test.fs"; "Tests.fs"; "Test.fsx"; "Tests.fsx" ]
             |> List.exists (fun suffix -> fileName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
 
+        let relativePath = Path.GetRelativePath(root, path)
+
         let directoryIgnored =
-            path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            |> Array.exists (fun part ->
-                part.EndsWith("Tests", StringComparison.OrdinalIgnoreCase)
-                || part.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase))
+            relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            |> Array.exists isIgnoredTestDirectoryName
 
         fileIgnored || directoryIgnored
 
@@ -56,27 +60,27 @@ module Discovery =
                   Message = message }
             )
 
-        let addFile path =
+        let addFile root path =
             let normalized = normalize path
 
             if
                 hasSuffix options.Suffixes normalized
                 && not (isExcluded options.Excludes normalized)
-                && not (options.IgnoreTests && isIgnoredTestPath normalized)
+                && not (options.IgnoreTests && isIgnoredTestPath root normalized)
             then
                 files.Add(normalized)
 
-        let rec visitDirectory (directory: DirectoryInfo) =
+        let rec visitDirectory root (directory: DirectoryInfo) =
             if
                 not (isAlwaysExcludedDirectory directory)
                 && not (isExcluded options.Excludes directory.FullName)
             then
                 try
                     for file in directory.EnumerateFiles() do
-                        addFile file.FullName
+                        addFile root file.FullName
 
                     for child in directory.EnumerateDirectories() do
-                        visitDirectory child
+                        visitDirectory root child
                 with ex ->
                     addError directory.FullName (sprintf "Could not read directory: %s" ex.Message)
 
@@ -85,11 +89,11 @@ module Discovery =
 
             if File.Exists(normalized) then
                 if hasSuffix options.Suffixes normalized then
-                    addFile normalized
+                    addFile normalized normalized
                 else
                     addError normalized (sprintf "Path does not match any configured source suffix: %s" normalized)
             elif Directory.Exists(normalized) then
-                visitDirectory (DirectoryInfo(normalized))
+                visitDirectory normalized (DirectoryInfo(normalized))
             else
                 addError normalized "Requested path does not exist."
 

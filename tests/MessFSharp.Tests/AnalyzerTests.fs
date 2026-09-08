@@ -107,6 +107,69 @@ let choose condition left right =
         Assert.Equal<string list>([ clean ], discovered)
 
     [<Fact>]
+    let ``ignore-tests does not skip production files when an ancestor directory ends in Tests`` () =
+        let workspace = Directory.CreateTempSubdirectory("messfsharp-ancestor-")
+
+        try
+            let projectTests =
+                Directory.CreateDirectory(Path.Combine(workspace.FullName, "ProjectTests"))
+
+            let src = Directory.CreateDirectory(Path.Combine(projectTests.FullName, "src"))
+            let app = Path.Combine(src.FullName, "App.fs")
+            File.WriteAllText(app, "module App\nlet value = 1\n")
+
+            let discovered, errors =
+                Discovery.discover
+                    { options [ src.FullName ] [ "fsharp" ] Text with
+                        IgnoreTests = true }
+
+            Assert.Empty(errors)
+            Assert.Equal<string list>([ Path.GetFullPath(app) ], discovered)
+
+            let fromNamedRoot, namedRootErrors =
+                Discovery.discover
+                    { options [ projectTests.FullName ] [ "fsharp" ] Text with
+                        IgnoreTests = true }
+
+            Assert.Empty(namedRootErrors)
+            Assert.Equal<string list>([ Path.GetFullPath(app) ], fromNamedRoot)
+        finally
+            workspace.Delete(true)
+
+    [<Fact>]
+    let ``ignore-tests still skips nested test directories and test-named files`` () =
+        let workspace = Directory.CreateTempSubdirectory("messfsharp-ignore-tests-")
+
+        try
+            let src = Directory.CreateDirectory(Path.Combine(workspace.FullName, "src"))
+            let app = Path.Combine(src.FullName, "App.fs")
+            File.WriteAllText(app, "module App\nlet value = 1\n")
+
+            let unitTests = Directory.CreateDirectory(Path.Combine(src.FullName, "UnitTests"))
+
+            File.WriteAllText(Path.Combine(unitTests.FullName, "Inside.fs"), "module Inside")
+
+            let sampleTests =
+                Directory.CreateDirectory(Path.Combine(src.FullName, "Sample.Tests"))
+
+            File.WriteAllText(Path.Combine(sampleTests.FullName, "Inside.fs"), "module SampleInside")
+
+            File.WriteAllText(Path.Combine(src.FullName, "AppTests.fs"), "module AppTests")
+            File.WriteAllText(Path.Combine(src.FullName, "FooTest.fs"), "module FooTest")
+            File.WriteAllText(Path.Combine(src.FullName, "ScriptTests.fsx"), "module ScriptTests")
+            File.WriteAllText(Path.Combine(src.FullName, "ScriptTest.fsx"), "module ScriptTest")
+
+            let discovered, errors =
+                Discovery.discover
+                    { options [ src.FullName ] [ "fsharp" ] Text with
+                        IgnoreTests = true }
+
+            Assert.Empty(errors)
+            Assert.Equal<string list>([ Path.GetFullPath(app) ], discovered)
+        finally
+            workspace.Delete(true)
+
+    [<Fact>]
     let ``case-sensitive file names are not collapsed on Unix`` () =
         if OperatingSystem.IsLinux() then
             let directory = Directory.CreateTempSubdirectory("messfsharp-case-")
