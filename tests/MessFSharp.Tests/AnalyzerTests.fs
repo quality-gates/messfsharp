@@ -460,6 +460,139 @@ let greet (name: string) =
         Assert.Empty(violationsLocal)
 
     [<Fact>]
+    let ``extended interpolated string holes are scanned and referenced bindings are not unused`` () =
+        let sourceText =
+            "module TestExtendedInterpolated\n"
+            + "let greet (name: string) =\n"
+            + "    let prefix = \"Hello\"\n"
+            + "    printfn $$\"\"\"{{prefix}} {{name}}\"\"\"\n"
+
+        let analyzed = analyzeSource sourceText
+
+        let selectionParam =
+            { Name = "UnusedFormalParameter"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let ruleParam = Rules.all |> List.find (fun r -> r.Name = "UnusedFormalParameter")
+        let violationsParam = ruleParam.Check analyzed selectionParam
+        Assert.Empty(violationsParam)
+
+        let selectionLocal =
+            { Name = "UnusedLocalVariable"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let ruleLocal = Rules.all |> List.find (fun r -> r.Name = "UnusedLocalVariable")
+        let violationsLocal = ruleLocal.Check analyzed selectionLocal
+        Assert.Empty(violationsLocal)
+
+        // Acceptance criteria: Identifiers inside extended interpolation holes are counted as references by referenceCountFor
+        Assert.True(analyzed.ReferenceCounts.["prefix"] >= 1)
+        Assert.True(analyzed.ReferenceCounts.["name"] >= 1)
+
+    [<Fact>]
+    let ``scanner recognizes extended interpolation identifiers in triple-quoted and single-quoted strings`` () =
+        let sourceTriple =
+            { FullPath = "test.fs"
+              Kind = Implementation
+              Text = "let _ = $$\"\"\"{{prefix}} {{name}}\"\"\""
+              Lines = [| "let _ = $$\"\"\"{{prefix}} {{name}}\"\"\"" |] }
+
+        let tokensTriple = Scanner.scan sourceTriple
+
+        let idTokensTriple =
+            tokensTriple
+            |> Array.filter (fun t -> t.Kind = Identifier)
+            |> Array.map (fun t -> t.Text)
+
+        Assert.Contains("prefix", idTokensTriple)
+        Assert.Contains("name", idTokensTriple)
+
+        let sourceSingle =
+            { FullPath = "test.fs"
+              Kind = Implementation
+              Text = "let _ = $$\"{{prefix}} {{name}}\""
+              Lines = [| "let _ = $$\"{{prefix}} {{name}}\"" |] }
+
+        let tokensSingle = Scanner.scan sourceSingle
+
+        let idTokensSingle =
+            tokensSingle
+            |> Array.filter (fun t -> t.Kind = Identifier)
+            |> Array.map (fun t -> t.Text)
+
+        Assert.Contains("prefix", idTokensSingle)
+        Assert.Contains("name", idTokensSingle)
+
+    [<Fact>]
+    let ``scanner preserves single braces in extended interpolation literal text`` () =
+        let source =
+            { FullPath = "test.fs"
+              Kind = Implementation
+              Text = "let json = $$\"\"\"{ \"title\": {{title}}, \"count\": 42 }\"\"\""
+              Lines = [| "let json = $$\"\"\"{ \"title\": {{title}}, \"count\": 42 }\"\"\"" |] }
+
+        let tokens = Scanner.scan source
+
+        let idTokens =
+            tokens
+            |> Array.filter (fun t -> t.Kind = Identifier)
+            |> Array.map (fun t -> t.Text)
+
+        Assert.Contains("title", idTokens)
+        Assert.DoesNotContain("count", idTokens)
+
+    [<Fact>]
+    let ``scanner handles triple dollar extended interpolation and verbatim prefixes`` () =
+        let sourceReal3 =
+            { FullPath = "test.fs"
+              Kind = Implementation
+              Text = "let _ = $$$ \"\"\"".Replace(" ", "") + "{{{payload}}}\"\"\""
+              Lines = [| "let _ = $$$ \"\"\"".Replace(" ", "") + "{{{payload}}}\"\"\"" |] }
+
+        let tokens3 = Scanner.scan sourceReal3
+
+        let idTokens3 =
+            tokens3
+            |> Array.filter (fun t -> t.Kind = Identifier)
+            |> Array.map (fun t -> t.Text)
+
+        Assert.Contains("payload", idTokens3)
+
+        let sourceVerbatimDollar =
+            { FullPath = "test.fs"
+              Kind = Implementation
+              Text = "let _ = @$$\"{{path}}\""
+              Lines = [| "let _ = @$$\"{{path}}\"" |] }
+
+        let tokensV = Scanner.scan sourceVerbatimDollar
+
+        let idTokensV =
+            tokensV
+            |> Array.filter (fun t -> t.Kind = Identifier)
+            |> Array.map (fun t -> t.Text)
+
+        Assert.Contains("path", idTokensV)
+
+        let sourceDollarVerbatim =
+            { FullPath = "test.fs"
+              Kind = Implementation
+              Text = "let _ = $$@\"{{dir}}\""
+              Lines = [| "let _ = $$@\"{{dir}}\"" |] }
+
+        let tokensDV = Scanner.scan sourceDollarVerbatim
+
+        let idTokensDV =
+            tokensDV
+            |> Array.filter (fun t -> t.Kind = Identifier)
+            |> Array.map (fun t -> t.Text)
+
+        Assert.Contains("dir", idTokensDV)
+
+    [<Fact>]
     let ``duplicated array key ignores commas in map entry values`` () =
         let analyzed =
             analyzeSource
