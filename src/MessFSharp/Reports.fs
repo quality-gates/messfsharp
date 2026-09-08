@@ -15,8 +15,11 @@ open Domain
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "NPathComplexity")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveClassComplexity")>]
 module Reports =
-    let private escapeAnnotation (value: string) =
+    let private escapeAnnotationProperty (value: string) =
         value.Replace("%", "%25").Replace("\r", "%0D").Replace("\n", "%0A").Replace(":", "%3A").Replace(",", "%2C")
+
+    let private escapeAnnotationData (value: string) =
+        value.Replace("%", "%25").Replace("\r", "%0D").Replace("\n", "%0A")
 
     let private visiblePath (path: string) =
         if String.IsNullOrWhiteSpace path then "<unknown>" else path
@@ -286,13 +289,13 @@ module Reports =
                 sprintf
                     "::%s file=%s,line=%d,col=%d,endLine=%d,endColumn=%d,title=%s::%s"
                     level
-                    (escapeAnnotation violation.Location.File)
+                    (escapeAnnotationProperty violation.Location.File)
                     violation.Location.StartLine
                     violation.Location.StartColumn
                     violation.Location.EndLine
                     violation.Location.EndColumn
-                    (escapeAnnotation violation.RuleName)
-                    (escapeAnnotation violation.Description)
+                    (escapeAnnotationProperty violation.RuleName)
+                    (escapeAnnotationData violation.Description)
             )
             |> ignore
 
@@ -302,14 +305,14 @@ module Reports =
                 builder.AppendLine(
                     sprintf
                         "::error file=%s,line=%d,col=%d,title=messfsharp::%s"
-                        (escapeAnnotation file)
+                        (escapeAnnotationProperty file)
                         location.StartLine
                         location.StartColumn
-                        (escapeAnnotation error.Message)
+                        (escapeAnnotationData error.Message)
                 )
                 |> ignore
             | _ ->
-                builder.AppendLine(sprintf "::error title=messfsharp::%s" (escapeAnnotation error.Message))
+                builder.AppendLine(sprintf "::error title=messfsharp::%s" (escapeAnnotationData error.Message))
                 |> ignore
 
         builder.ToString()
