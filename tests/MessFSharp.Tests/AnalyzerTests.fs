@@ -679,6 +679,109 @@ let myMap =
         Assert.Empty(violations)
 
     [<Fact>]
+    let ``duplicated array key ignores multiline tuple values in single entry map`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMap
+let myMap =
+    Map.ofList
+        [ 1,
+          (1, 2) ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``duplicated array key ignores semicolons in string literals`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMap
+let myMap =
+    Map.ofList
+        [ 1, "item; 1, other" ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``duplicated array key detects genuine duplicate keys in list literal`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMap
+let myMap = Map.ofList [ "a", 1; "a", 2 ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Single(violations) |> ignore
+
+    [<Fact>]
+    let ``duplicated array key detects genuine duplicate keys across lines`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMap
+let myMap =
+    Map.ofList
+        [ "a", 1
+          "a", 2 ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Single(violations) |> ignore
+
+    [<Fact>]
+    let ``duplicated array key ignores nested collections containing semicolons`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMap
+let myMap =
+    Map.ofList
+        [ 1, [ "first; nested"; "second" ]
+          2, [ "third; item" ] ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+
+
     let ``static access ignores open directives`` () =
         let analyzed =
             analyzeSource
