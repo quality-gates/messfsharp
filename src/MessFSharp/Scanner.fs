@@ -99,11 +99,59 @@ module Scanner =
         )
 
     [<NoEquality; NoComparison>]
-    type private InterpolationState =
+    type internal InterpolationState =
         { Terminator: string
           IsVerbatim: bool
           DollarCount: int
           mutable BraceDepth: int }
+
+    let private tryScanInterpolationPrefix (text: string) length startIndex =
+        if startIndex >= length then
+            None
+        elif text[startIndex] = '$' then
+            let mutable dc = 0
+
+            while startIndex + dc < length && text[startIndex + dc] = '$' do
+                dc <- dc + 1
+
+            let isVerbatim = startIndex + dc < length && text[startIndex + dc] = '@'
+            let quoteIndex = if isVerbatim then startIndex + dc + 1 else startIndex + dc
+
+            if quoteIndex < length && text[quoteIndex] = '"' then
+                let isTriple =
+                    quoteIndex + 2 < length
+                    && text[quoteIndex + 1] = '"'
+                    && text[quoteIndex + 2] = '"'
+
+                let terminator = if isTriple then "\"\"\"" else "\""
+                let prefixLength = dc + (if isVerbatim then 1 else 0) + terminator.Length
+                Some(terminator, isVerbatim, dc, prefixLength)
+            else
+                None
+        elif text[startIndex] = '@' then
+            let mutable dc = 0
+
+            while startIndex + 1 + dc < length && text[startIndex + 1 + dc] = '$' do
+                dc <- dc + 1
+
+            if dc > 0 then
+                let quoteIndex = startIndex + 1 + dc
+
+                if quoteIndex < length && text[quoteIndex] = '"' then
+                    let isTriple =
+                        quoteIndex + 2 < length
+                        && text[quoteIndex + 1] = '"'
+                        && text[quoteIndex + 2] = '"'
+
+                    let terminator = if isTriple then "\"\"\"" else "\""
+                    let prefixLength = 1 + dc + terminator.Length
+                    Some(terminator, true, dc, prefixLength)
+                else
+                    None
+            else
+                None
+        else
+            None
 
     let scan (source: SourceFile) =
         let tokens = ResizeArray<SyntaxToken>()
@@ -178,12 +226,32 @@ module Scanner =
                     then
                         advanceMany state.Terminator.Length
                         closed <- true
-                    elif text[index] = '{' && index + 1 < length && text[index + 1] = '{' then
+                    elif
+                        state.DollarCount = 1
+                        && text[index] = '{'
+                        && index + 1 < length
+                        && text[index + 1] = '{'
+                    then
                         advanceMany 2
-                    elif text[index] = '}' && index + 1 < length && text[index + 1] = '}' then
+                    elif
+                        state.DollarCount = 1
+                        && text[index] = '}'
+                        && index + 1 < length
+                        && text[index + 1] = '}'
+                    then
                         advanceMany 2
-                    elif text[index] = '{' then
+                    elif state.DollarCount = 1 && text[index] = '{' then
                         holeFound <- true
+                    elif state.DollarCount > 1 && text[index] = '{' then
+                        let mutable braceCount = 0
+
+                        while index + braceCount < length && text[index + braceCount] = '{' do
+                            braceCount <- braceCount + 1
+
+                        if braceCount >= state.DollarCount then
+                            holeFound <- true
+                        else
+                            advance ()
                     elif text[index] = '\\' && not state.IsVerbatim && not isTriple && index + 1 < length then
                         advanceMany 2
                     elif
@@ -210,9 +278,11 @@ module Scanner =
                 if closed then
                     activeInterpolations.Pop() |> ignore
                 elif holeFound then
-                    let holeLine, holeColumn = startPosition ()
-                    advance ()
-                    addToken tokens Punctuation "{" holeLine holeColumn line column
+                    for _ in 1 .. state.DollarCount do
+                        let holeLine, holeColumn = startPosition ()
+                        advance ()
+                        addToken tokens Punctuation "{" holeLine holeColumn line column
+
                     state.BraceDepth <- 1
             elif text[index] = '\n' || text[index] = '\r' || Char.IsWhiteSpace(text[index]) then
                 advance ()
@@ -276,60 +346,24 @@ module Scanner =
 
                     addToken tokens Identifier value startLine startColumn line column
                 elif
-                    character = '$'
-                    && index + 1 < length
-                    && (text[index + 1] = '"'
-                        || (text[index + 1] = '@' && index + 2 < length && text[index + 2] = '"'))
+                    (match tryScanInterpolationPrefix text length index with
+                     | Some(terminator, isVerbatim, dollarCount, prefixLength) ->
+                         interpolationSegmentStart <- index
+                         interpolationSegmentStartLine <- startLine
+                         interpolationSegmentStartColumn <- startColumn
+                         advanceMany prefixLength
+
+                         let state =
+                             { Terminator = terminator
+                               IsVerbatim = isVerbatim
+                               DollarCount = dollarCount
+                               BraceDepth = 0 }
+
+                         activeInterpolations.Push(state)
+                         true
+                     | None -> false)
                 then
-                    let isVerbatim = text[index + 1] = '@'
-                    let quoteIndex = if isVerbatim then index + 2 else index + 1
-
-                    let isTriple =
-                        quoteIndex + 2 < length
-                        && text[quoteIndex + 1] = '"'
-                        && text[quoteIndex + 2] = '"'
-
-                    let terminator = if isTriple then "\"\"\"" else "\""
-                    let prefixLength = (if isVerbatim then 2 else 1) + terminator.Length
-                    interpolationSegmentStart <- index
-                    interpolationSegmentStartLine <- startLine
-                    interpolationSegmentStartColumn <- startColumn
-                    advanceMany prefixLength
-
-                    let state =
-                        { Terminator = terminator
-                          IsVerbatim = isVerbatim
-                          DollarCount = 1
-                          BraceDepth = 0 }
-
-                    activeInterpolations.Push(state)
-                elif
-                    character = '@'
-                    && index + 2 < length
-                    && text[index + 1] = '$'
-                    && text[index + 2] = '"'
-                then
-                    let quoteIndex = index + 2
-
-                    let isTriple =
-                        quoteIndex + 2 < length
-                        && text[quoteIndex + 1] = '"'
-                        && text[quoteIndex + 2] = '"'
-
-                    let terminator = if isTriple then "\"\"\"" else "\""
-                    let prefixLength = 2 + terminator.Length
-                    interpolationSegmentStart <- index
-                    interpolationSegmentStartLine <- startLine
-                    interpolationSegmentStartColumn <- startColumn
-                    advanceMany prefixLength
-
-                    let state =
-                        { Terminator = terminator
-                          IsVerbatim = true
-                          DollarCount = 1
-                          BraceDepth = 0 }
-
-                    activeInterpolations.Push(state)
+                    ()
                 elif character = '@' && index + 1 < length && text[index + 1] = '"' then
                     let isTriple = index + 3 < length && text[index + 2] = '"' && text[index + 3] = '"'
                     let terminator = if isTriple then "\"\"\"" else "\""
@@ -393,18 +427,41 @@ module Scanner =
 
                     addToken tokens Punctuation "{" startLine startColumn line column
                 elif character = '}' then
-                    advance ()
-
                     if activeInterpolations.Count > 0 then
                         let state = activeInterpolations.Peek()
-                        state.BraceDepth <- state.BraceDepth - 1
 
-                        if state.BraceDepth = 0 then
-                            interpolationSegmentStart <- index
-                            interpolationSegmentStartLine <- line
-                            interpolationSegmentStartColumn <- column
+                        if state.BraceDepth = 1 && state.DollarCount > 1 then
+                            let mutable closeCount = 0
 
-                    addToken tokens Punctuation "}" startLine startColumn line column
+                            while index + closeCount < length && text[index + closeCount] = '}' do
+                                closeCount <- closeCount + 1
+
+                            if closeCount >= state.DollarCount then
+                                for _ in 1 .. state.DollarCount do
+                                    let closeLine, closeColumn = startPosition ()
+                                    advance ()
+                                    addToken tokens Punctuation "}" closeLine closeColumn line column
+
+                                state.BraceDepth <- 0
+                                interpolationSegmentStart <- index
+                                interpolationSegmentStartLine <- line
+                                interpolationSegmentStartColumn <- column
+                            else
+                                advance ()
+                                addToken tokens Punctuation "}" startLine startColumn line column
+                        else
+                            advance ()
+                            state.BraceDepth <- state.BraceDepth - 1
+
+                            if state.BraceDepth = 0 then
+                                interpolationSegmentStart <- index
+                                interpolationSegmentStartLine <- line
+                                interpolationSegmentStartColumn <- column
+
+                            addToken tokens Punctuation "}" startLine startColumn line column
+                    else
+                        advance ()
+                        addToken tokens Punctuation "}" startLine startColumn line column
                 elif
                     character = '\''
                     && index + 1 < length
