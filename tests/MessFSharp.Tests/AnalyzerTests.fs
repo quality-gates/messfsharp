@@ -1179,3 +1179,70 @@ type Service =
         Assert.Contains("GetIsValid", violationNames)
         Assert.Contains("GetHasPermission", violationNames)
         Assert.Contains("GetEnabled", violationNames)
+
+    [<Fact>]
+    let ``mutually recursive and let-bindings are distinct declarations with independent metrics`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let rec f x =
+    if x > 0 then
+        g (x - 1)
+    else
+        0
+and g y =
+    if y <= 0 then
+        0
+    else
+        f y
+"""
+
+        let functions =
+            analyzed.Declarations
+            |> List.filter (fun declaration -> declaration.Kind = Function)
+
+        let f = functions |> List.find (fun declaration -> declaration.Name = "f")
+        let g = functions |> List.find (fun declaration -> declaration.Name = "g")
+
+        Assert.Equal(3, f.Location.StartLine)
+        Assert.Equal(7, f.Location.EndLine)
+        Assert.Equal(8, g.Location.StartLine)
+        Assert.Equal(13, g.Location.EndLine)
+        Assert.True(f.Location.EndLine < g.Location.StartLine)
+        Assert.Contains("g (x - 1)", f.Text)
+        Assert.DoesNotContain("and g y", f.Text)
+        Assert.Contains("if y <= 0 then", g.Text)
+        Assert.Contains("f y", g.Text)
+        Assert.Equal(1, f.ParameterCount)
+        Assert.Equal(1, g.ParameterCount)
+
+        let metric (map: Map<string * int, int>) (declaration: Declaration) =
+            Map.tryFind (declaration.Name, declaration.Location.StartLine) map
+            |> Option.defaultValue 0
+
+        Assert.Equal(2, metric analyzed.ComplexityByDeclaration f)
+        Assert.Equal(2, metric analyzed.ComplexityByDeclaration g)
+        Assert.Equal(2, metric analyzed.NPathByDeclaration f)
+        Assert.Equal(2, metric analyzed.NPathByDeclaration g)
+        Assert.Equal(5, metric analyzed.LineCountByDeclaration f)
+        Assert.Equal(6, metric analyzed.LineCountByDeclaration g)
+
+        let check ruleName properties =
+            let rule = Rules.all |> List.find (fun rule -> rule.Name = ruleName)
+
+            rule.Check
+                analyzed
+                { Name = ruleName
+                  RulesetName = "codesize"
+                  Priority = 3
+                  Properties = properties }
+
+        let startLines violations =
+            violations
+            |> List.map (fun violation -> violation.Location.StartLine)
+            |> List.sort
+
+        Assert.Equal<int list>([ 3; 8 ], startLines (check "CyclomaticComplexity" (Map.ofList [ "maximum", "1" ])))
+        Assert.Equal<int list>([ 3; 8 ], startLines (check "NPathComplexity" (Map.ofList [ "maximum", "1" ])))
+        Assert.Equal<int list>([ 3; 8 ], startLines (check "ExcessiveMethodLength" (Map.ofList [ "minimum", "4" ])))
