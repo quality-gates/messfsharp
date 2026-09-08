@@ -143,6 +143,7 @@ module Domain =
           TypeFields: Map<string, Declaration list>
           TypeMethods: Map<string, Declaration list>
           Expressions: NormalizedExpression list
+          ExceptionHandlerClauses: SourceLocation list
           LexicalScopes: LexicalScope list
           SyntacticReferences: SyntacticReference list }
 

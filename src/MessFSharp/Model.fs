@@ -1811,5 +1811,6 @@ module Model =
           TypeFields = typeFields
           TypeMethods = typeMethods
           Expressions = syntaxFacts.Expressions
+          ExceptionHandlerClauses = syntaxFacts.ExceptionHandlerClauses
           LexicalScopes = syntaxFacts.LexicalScopes
           SyntacticReferences = syntaxFacts.References }

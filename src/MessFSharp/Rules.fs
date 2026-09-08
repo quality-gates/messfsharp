@@ -173,9 +173,6 @@ module Rules =
                     && file.Tokens[index + 2].Text = "Value"
                     && file.Tokens[index + 3].Text = "<-")))
 
-    let private numberedLines (file: AnalyzedFile) =
-        file.Source.Lines |> Array.mapi (fun index line -> index + 1, line)
-
     let private lineIndent (line: string) =
         line
         |> Seq.takeWhile (fun character -> character = ' ' || character = '\t')
@@ -1425,69 +1422,41 @@ module Rules =
             fun file selection ->
                 let lines = file.Source.Lines
 
-                numberedLines file
-                |> Array.choose (fun (lineNumber, line) ->
-                    let pipeIndex = line.IndexOf('|')
-                    let withIndex = line.IndexOf("with", StringComparison.OrdinalIgnoreCase)
+                let clauseLine (clause: SourceLocation) =
+                    let lineNumber = clause.StartLine
+                    let line = lines[lineNumber - 1]
                     let arrowIndex = line.IndexOf("->", StringComparison.Ordinal)
 
-                    let branchIndex =
-                        if pipeIndex >= 0 && pipeIndex < arrowIndex then pipeIndex
-                        elif withIndex >= 0 && withIndex < arrowIndex then withIndex
-                        else -1
-
-                    let clause =
-                        if branchIndex >= 0 then
-                            line.Substring(branchIndex).TrimStart()
+                    let afterArrow =
+                        if arrowIndex >= 0 then
+                            line.Substring(arrowIndex + 2).Trim()
                         else
                             ""
 
-                    if
-                        branchIndex >= 0
-                        && (clause.StartsWith("|", StringComparison.Ordinal)
-                            || clause.StartsWith("with", StringComparison.OrdinalIgnoreCase))
-                    then
-                        let afterArrow = line.Substring(arrowIndex + 2).Trim()
-                        let branchPrefix = line.Substring(0, branchIndex)
-                        let mutable nextIndex = lineNumber
-                        let mutable nextMeaningful = None
+                    let mutable nextIndex = lineNumber
+                    let mutable nextMeaningful = None
 
-                        while nextIndex < lines.Length && nextMeaningful.IsNone do
-                            let candidate = lines[nextIndex]
+                    while nextIndex < lines.Length && nextMeaningful.IsNone do
+                        let candidate = lines[nextIndex]
 
-                            if
-                                not (String.IsNullOrWhiteSpace candidate)
-                                && not (candidate.TrimStart().StartsWith("//", StringComparison.Ordinal))
-                            then
-                                nextMeaningful <- Some(candidate.Trim())
+                        if
+                            not (String.IsNullOrWhiteSpace candidate)
+                            && not (candidate.TrimStart().StartsWith("//", StringComparison.Ordinal))
+                        then
+                            nextMeaningful <- Some(candidate.Trim())
 
-                            nextIndex <- nextIndex + 1
+                        nextIndex <- nextIndex + 1
 
-                        let emptyBody = afterArrow = "()" || nextMeaningful = Some "()"
+                    let emptyBody = afterArrow = "()" || nextMeaningful = Some "()"
 
-                        let precedingWith =
-                            branchPrefix.IndexOf("with", StringComparison.OrdinalIgnoreCase) >= 0
-                            || clause.StartsWith("with", StringComparison.OrdinalIgnoreCase)
-                            || (lineNumber > 1
-                                && lines[lineNumber - 2]
-                                    .TrimStart()
-                                    .StartsWith("with", StringComparison.OrdinalIgnoreCase))
-
-                        let hasTry =
-                            file.Tokens
-                            |> Array.exists (fun token ->
-                                token.Kind = Keyword
-                                && token.Text = "try"
-                                && token.Line < lineNumber
-                                && token.Line >= max 1 (lineNumber - 50))
-
-                        if emptyBody && precedingWith && hasTry then
-                            Some(violation file selection None lineNumber "Exception handler is empty.")
-                        else
-                            None
+                    if emptyBody then
+                        Some(violation file selection None lineNumber "Exception handler is empty.")
                     else
-                        None)
-                |> Array.toList }
+                        None
+
+                file.ExceptionHandlerClauses
+                |> List.choose clauseLine
+                |> List.sortBy (fun v -> v.Location.StartLine) }
 
     let private builtinCouplingNames =
         set
