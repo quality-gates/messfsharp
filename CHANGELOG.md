@@ -1,8 +1,24 @@
 # Changelog
 
-## 0.1.2
+## 0.1.3
 
 - Fix `ElseExpression` false positives when string literals or comments contain `raise`, `failwith`, or `Environment.Exit` (#34).
+- Fix `ExitExpression` missing F# `exit`, `Environment.Exit`, and identifier arguments (#33).
+- Fix `StaticAccess` false positives on declarations, type annotations, and attributes (#31).
+- Fix same-line attributes being ignored for suppressions and compiler bindings (#30).
+- Fix compiler bindings duplicating member and property declarations (#29).
+- Fix `--ignore-tests` skipping production files when an ancestor directory ends in `Tests` (#35).
+- Fix mutually recursive `and` bindings being parsed as a single declaration (#36).
+- Fix `EmptyCatchBlock` false positives on pattern-match unit clauses (#37).
+- Fix `DuplicatedArrayKey` false positives on nested expressions and string literals (#38).
+- Fix GitHub annotation message bodies encoding colons and commas (#39).
+- Fix scanner not recognizing unicode, hex, and decimal character escape sequences (#40).
+- Fix extended string interpolation (`$$`) causing unused-variable false positives (#41).
+- Fix boolean member detection matching `true`/`false` in comments, strings, and bodies (#42).
+- Fix `CouplingBetweenObjects` counting comments, string literals, own members, and built-in types (#43).
+
+## 0.1.2
+
 - Add production and development Dockerfiles (#26).
 - Set runtime WORKDIR to /code and add default help CMD (#27).
 
