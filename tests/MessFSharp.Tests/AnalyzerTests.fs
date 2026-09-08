@@ -509,7 +509,7 @@ let run status =
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
         let violations = rule.Check analyzed selection
-        Assert.Single(violations)
+        Assert.Single(violations) |> ignore
         Assert.Equal(10, violations[0].Location.StartLine)
 
     [<Fact>]
