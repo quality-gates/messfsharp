@@ -308,50 +308,290 @@ module Rules =
 
         result |> Seq.distinct |> Seq.toList
 
-    let private constructionBlocks (file: AnalyzedFile) =
-        let lines = file.Source.Lines
-        let blocks = ResizeArray<int * string>()
-        let mapFactories = set [ "ofList"; "ofArray"; "ofSeq" ]
+    let private mapFactories = set [ "ofList"; "ofArray"; "ofSeq" ]
 
-        let lineHasConstruction lineNumber =
-            let tokens = file.Tokens |> Array.filter (fun token -> token.Line = lineNumber)
+    let private isMapConstruction (tokens: SyntaxToken array) (i: int) =
+        let token = tokens[i]
 
-            tokens
-            |> Array.exists (fun token -> token.Text = "dict" || token.Text = "Dictionary")
-            || (tokens
-                |> Array.windowed 3
-                |> Array.exists (fun window ->
-                    window[0].Text = "Map"
-                    && window[1].Text = "."
-                    && mapFactories.Contains(window[2].Text)))
+        if token.Kind = Identifier && (token.Text = "dict" || token.Text = "Dictionary") then
+            if i = 0 || tokens[i - 1].Text <> "." then
+                let startLine =
+                    if i > 0 && tokens[i - 1].Text = "new" then
+                        tokens[i - 1].Line
+                    else
+                        token.Line
 
-        for startIndex in 0 .. lines.Length - 1 do
-            let nextLineStartsList =
-                startIndex + 1 < lines.Length
-                && lines[startIndex + 1].TrimStart().StartsWith("[", StringComparison.Ordinal)
+                Some(startLine, i + 1)
+            else
+                None
+        elif
+            i >= 2
+            && tokens[i - 2].Text = "Map"
+            && tokens[i - 1].Text = "."
+            && mapFactories.Contains(token.Text)
+        then
+            Some(tokens[i - 2].Line, i + 1)
+        else
+            None
 
-            if
-                lineHasConstruction (startIndex + 1)
-                && (lines[startIndex].Contains("[", StringComparison.Ordinal) || nextLineStartsList)
-            then
-                let mutable endIndex = startIndex
-                let mutable closed = false
+    let private findCollectionOpening (tokens: SyntaxToken array) (searchStart: int) =
+        let mutable k = searchStart
+        let mutable angleDepth = 0
 
-                while endIndex < lines.Length && not closed && endIndex - startIndex < 200 do
-                    if
-                        file.Tokens
-                        |> Array.exists (fun token ->
-                            token.Line = endIndex + 1 && token.Kind = Punctuation && token.Text = "]")
-                    then
-                        closed <- true
+        if k < tokens.Length && tokens[k].Kind = Operator && tokens[k].Text = "<" then
+            angleDepth <- 1
+            k <- k + 1
 
-                    endIndex <- endIndex + 1
+            while k < tokens.Length && angleDepth > 0 do
+                if tokens[k].Kind = Operator && tokens[k].Text = "<" then
+                    angleDepth <- angleDepth + 1
+                elif tokens[k].Kind = Operator && tokens[k].Text = ">" then
+                    angleDepth <- angleDepth - 1
 
-                let endIndex = min lines.Length endIndex
-                let text = lines[startIndex .. endIndex - 1] |> String.concat "\n"
-                blocks.Add(startIndex + 1, text)
+                k <- k + 1
 
-        blocks |> Seq.toList
+        while k < tokens.Length
+              && ((tokens[k].Kind = Punctuation && tokens[k].Text = "(")
+                  || (tokens[k].Kind = Identifier
+                      && (tokens[k].Text = "seq" || tokens[k].Text = "dict"))) do
+            k <- k + 1
+
+        if k < tokens.Length && tokens[k].Kind = Punctuation && tokens[k].Text = "[" then
+            Some k
+        else
+            None
+
+    let private findMatchingClosingBracket (tokens: SyntaxToken array) (openIdx: int) =
+        let mutable bracketDepth = 1
+        let mutable cur = openIdx + 1
+        let mutable closeIdx = None
+
+        while cur < tokens.Length && bracketDepth > 0 do
+            let t = tokens[cur]
+
+            if t.Kind = Punctuation && t.Text = "[" then
+                bracketDepth <- bracketDepth + 1
+            elif t.Kind = Punctuation && t.Text = "]" then
+                bracketDepth <- bracketDepth - 1
+
+                if bracketDepth = 0 then
+                    closeIdx <- Some cur
+
+            cur <- cur + 1
+
+        closeIdx
+
+    let private getLiteralTokens (tokens: SyntaxToken array) (openIdx: int) (closeIdx: int) =
+        let mutable start = openIdx + 1
+        let mutable endIdx = closeIdx - 1
+
+        if start <= endIdx && tokens[start].Kind = Operator && tokens[start].Text = "|" then
+            start <- start + 1
+
+        if endIdx >= start && tokens[endIdx].Kind = Operator && tokens[endIdx].Text = "|" then
+            endIdx <- endIdx - 1
+
+        if start <= endIdx then tokens[start..endIdx] else [||]
+
+    let private tryExtractLiteralKey (tokens: SyntaxToken array) (index: int) =
+        if index >= tokens.Length then
+            None
+        else
+            let token = tokens[index]
+
+            match token.Kind with
+            | StringLiteral
+            | CharacterLiteral
+            | Number -> Some(token.Text, index + 1)
+            | Keyword when token.Text = "true" || token.Text = "false" -> Some(token.Text, index + 1)
+            | Operator when token.Text = "-" && index + 1 < tokens.Length && tokens[index + 1].Kind = Number ->
+                Some("-" + tokens[index + 1].Text, index + 2)
+            | _ -> None
+
+    let private tryExtractKey (tokens: SyntaxToken array) (index: int) =
+        if index >= tokens.Length then
+            None
+        elif tokens[index].Kind = Punctuation && tokens[index].Text = "(" then
+            match tryExtractLiteralKey tokens (index + 1) with
+            | Some(key, afterKey) when
+                afterKey < tokens.Length
+                && tokens[afterKey].Kind = Punctuation
+                && tokens[afterKey].Text = ")"
+                ->
+                Some(key, afterKey + 1)
+            | _ -> None
+        else
+            tryExtractLiteralKey tokens index
+
+    let private isParenEntry (tokens: SyntaxToken array) (index: int) =
+        if
+            index < tokens.Length
+            && tokens[index].Kind = Punctuation
+            && tokens[index].Text = "("
+        then
+            match tryExtractKey tokens (index + 1) with
+            | Some(key, afterKey) when
+                afterKey < tokens.Length
+                && tokens[afterKey].Kind = Punctuation
+                && tokens[afterKey].Text = ","
+                ->
+                Some(key, afterKey + 1)
+            | _ -> None
+        else
+            None
+
+    let private isUnparenEntry (tokens: SyntaxToken array) (index: int) =
+        match tryExtractKey tokens index with
+        | Some(key, afterKey) when
+            afterKey < tokens.Length
+            && tokens[afterKey].Kind = Punctuation
+            && tokens[afterKey].Text = ","
+            ->
+            Some(key, afterKey + 1)
+        | _ -> None
+
+    let private extractKeys (tokens: SyntaxToken array) =
+        let keys = ResizeArray<string>()
+        let mutable index = 0
+
+        while index < tokens.Length do
+            while index < tokens.Length
+                  && tokens[index].Kind = Punctuation
+                  && tokens[index].Text = ";" do
+                index <- index + 1
+
+            if index < tokens.Length then
+                match isParenEntry tokens index with
+                | Some(key, valueStart) ->
+                    keys.Add(key)
+                    let mutable parenDepth = 1
+                    let mutable cur = valueStart
+
+                    while cur < tokens.Length && parenDepth > 0 do
+                        let t = tokens[cur]
+
+                        if t.Kind = Punctuation then
+                            if t.Text = "(" then
+                                parenDepth <- parenDepth + 1
+                            elif t.Text = ")" then
+                                parenDepth <- parenDepth - 1
+
+                        cur <- cur + 1
+
+                    if cur < tokens.Length && tokens[cur].Kind = Punctuation && tokens[cur].Text = ";" then
+                        cur <- cur + 1
+
+                    index <- cur
+
+                | None ->
+                    match isUnparenEntry tokens index with
+                    | Some(key, valueStart) ->
+                        keys.Add(key)
+                        let mutable parenDepth = 0
+                        let mutable bracketDepth = 0
+                        let mutable braceDepth = 0
+                        let mutable cur = valueStart
+                        let mutable entryEnded = false
+
+                        while cur < tokens.Length && not entryEnded do
+                            let t = tokens[cur]
+
+                            if t.Kind = Punctuation then
+                                if t.Text = "(" then
+                                    parenDepth <- parenDepth + 1
+                                elif t.Text = ")" then
+                                    parenDepth <- max 0 (parenDepth - 1)
+                                elif t.Text = "[" then
+                                    bracketDepth <- bracketDepth + 1
+                                elif t.Text = "]" then
+                                    bracketDepth <- max 0 (bracketDepth - 1)
+                                elif t.Text = "{" then
+                                    braceDepth <- braceDepth + 1
+                                elif t.Text = "}" then
+                                    braceDepth <- max 0 (braceDepth - 1)
+                                elif t.Text = ";" && parenDepth = 0 && bracketDepth = 0 && braceDepth = 0 then
+                                    entryEnded <- true
+                                    cur <- cur + 1
+
+                            if not entryEnded && parenDepth = 0 && bracketDepth = 0 && braceDepth = 0 then
+                                if cur + 1 < tokens.Length && tokens[cur + 1].Line > t.Line then
+                                    let nextIsEntry =
+                                        (isParenEntry tokens (cur + 1)).IsSome
+                                        || (isUnparenEntry tokens (cur + 1)).IsSome
+
+                                    if nextIsEntry then
+                                        entryEnded <- true
+                                        cur <- cur + 1
+
+                            if not entryEnded then
+                                cur <- cur + 1
+
+                        index <- cur
+
+                    | None ->
+                        let mutable parenDepth = 0
+                        let mutable bracketDepth = 0
+                        let mutable braceDepth = 0
+                        let mutable cur = index
+                        let mutable advanced = false
+
+                        while cur < tokens.Length && not advanced do
+                            let t = tokens[cur]
+
+                            if t.Kind = Punctuation then
+                                if t.Text = "(" then
+                                    parenDepth <- parenDepth + 1
+                                elif t.Text = ")" then
+                                    parenDepth <- max 0 (parenDepth - 1)
+                                elif t.Text = "[" then
+                                    bracketDepth <- bracketDepth + 1
+                                elif t.Text = "]" then
+                                    bracketDepth <- max 0 (bracketDepth - 1)
+                                elif t.Text = "{" then
+                                    braceDepth <- braceDepth + 1
+                                elif t.Text = "}" then
+                                    braceDepth <- max 0 (braceDepth - 1)
+                                elif t.Text = ";" && parenDepth = 0 && bracketDepth = 0 && braceDepth = 0 then
+                                    advanced <- true
+                                    cur <- cur + 1
+
+                            if not advanced && parenDepth = 0 && bracketDepth = 0 && braceDepth = 0 then
+                                if cur + 1 < tokens.Length && tokens[cur + 1].Line > t.Line then
+                                    let nextIsEntry =
+                                        (isParenEntry tokens (cur + 1)).IsSome
+                                        || (isUnparenEntry tokens (cur + 1)).IsSome
+
+                                    if nextIsEntry then
+                                        advanced <- true
+                                        cur <- cur + 1
+
+                            if not advanced then
+                                cur <- cur + 1
+
+                        index <- cur
+
+        keys |> Seq.toList
+
+    let private mapConstructions (file: AnalyzedFile) =
+        let tokens = file.Tokens
+        let processedBrackets = HashSet<int>()
+        let constructions = ResizeArray<int * string list>()
+
+        for i in 0 .. tokens.Length - 1 do
+            match isMapConstruction tokens i with
+            | Some(startLine, searchStart) ->
+                match findCollectionOpening tokens searchStart with
+                | Some openIdx when processedBrackets.Add(openIdx) ->
+                    match findMatchingClosingBracket tokens openIdx with
+                    | Some closeIdx ->
+                        let literalTokens = getLiteralTokens tokens openIdx closeIdx
+                        let keys = extractKeys literalTokens
+                        constructions.Add(startLine, keys)
+                    | None -> ()
+                | _ -> ()
+            | None -> ()
+
+        constructions |> Seq.toList
 
     let private meaningfulLineCount (declaration: Declaration) =
         declaration.Text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')
@@ -1071,34 +1311,8 @@ module Rules =
           Description = "Reports duplicate statically knowable keys in map or dictionary construction."
           Check =
             fun file selection ->
-                let entryKeyPattern =
-                    Regex(
-                        "^(\"[^\"]*\"|'[^']*'|-?[0-9]+|true|false)\\s*,",
-                        RegexOptions.Compiled ||| RegexOptions.IgnoreCase
-                    )
-
-                constructionBlocks file
-                |> List.choose (fun (lineNumber, text) ->
-                    let listContent =
-                        match text.IndexOf('[') with
-                        | -1 -> text
-                        | idx ->
-                            let afterOpen = text.Substring(idx + 1).TrimStart('|')
-
-                            match afterOpen.LastIndexOf(']') with
-                            | -1 -> afterOpen
-                            | closeIdx -> afterOpen.Substring(0, closeIdx).TrimEnd('|')
-
-                    let entries = listContent.Split([| '\n'; ';' |])
-
-                    let keys =
-                        entries
-                        |> Array.choose (fun (entry: string) ->
-                            let trimmed = entry.Trim().TrimStart('(').Trim()
-                            let m = entryKeyPattern.Match(trimmed)
-                            if m.Success then Some m.Groups[1].Value else None)
-                        |> Array.toList
-
+                mapConstructions file
+                |> List.choose (fun (lineNumber, keys) ->
                     if keys.Length <> (keys |> List.distinct |> List.length) then
                         Some(
                             violation
