@@ -176,6 +176,20 @@ type Service() =
         Assert.Equal("Type methods form 2 cohesion groups.", violations.Head.Description)
 
     [<Fact>]
+    let ``declaration scanning ignores multiline strings and block comments`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                { Defaults.analysisOptions with
+                    Paths = [ fixture "issue-65-non-code-text-declarations.fs" ]
+                    Rulesets = [ "controversial" ]
+                    Format = Json }
+
+        Assert.Empty(result.Report.Errors)
+        Assert.Empty(result.Report.Violations)
+        Assert.Equal(0, result.ExitCode)
+
+    [<Fact>]
     let ``component rulesets retain stricter checks omitted by fsharp`` () =
         let unwrap loaded =
             match loaded with
