@@ -125,6 +125,7 @@ let total = first + second
         Assert.Equal(0, second.ParameterCount)
         Assert.Equal(Some "Sample", second.Parent)
         Assert.DoesNotContain(analyzed.Declarations, fun item -> item.Kind = Parameter)
+
         Assert.DoesNotContain(
             analyzed.TypeMethods |> Map.tryFind "Sample" |> Option.defaultValue [],
             fun item -> item.Name = "first" || item.Name = "second"
