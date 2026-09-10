@@ -142,6 +142,32 @@ let total = first + second
         Assert.Empty(rule.Check analyzed selection)
 
     [<Fact>]
+    let ``active pattern inputs are not reported as unused formal parameters`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let (|Even|Odd|) value =
+    if value % 2 = 0 then Even else Odd
+"""
+
+        let valueParameter =
+            analyzed.Declarations
+            |> List.find (fun item -> item.Kind = Parameter && item.Name = "value")
+
+        Assert.Equal(Some "|Even|Odd|", valueParameter.Parent)
+
+        let rule = Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
+
+        let selection =
+            { Name = "UnusedFormalParameter"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        Assert.Empty(rule.Check analyzed selection)
+
+    [<Fact>]
     let ``let bang bindings are local to computation expressions`` () =
         let analyzed =
             analyzeSource
