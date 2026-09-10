@@ -1838,6 +1838,62 @@ type Service =
         Assert.Contains("GetEnabled", violationNames)
 
     [<Fact>]
+    let ``boolean get method name does not count property getter accessors as parameters`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+type Service() =
+    member _.GetReady with get() = true
+    member _.Item with get(index: int) = index
+    member _.GetValue(``get``: int) = true
+"""
+
+        let declaration name =
+            analyzed.Declarations |> List.find (fun item -> item.Name = name)
+
+        let getReady = declaration "GetReady"
+        let item = declaration "Item"
+        let getValue = declaration "GetValue"
+
+        Assert.Equal(Property, getReady.Kind)
+        Assert.Equal(0, getReady.ParameterCount)
+        Assert.Equal(Property, item.Kind)
+        Assert.Equal(1, item.ParameterCount)
+        Assert.Equal(Member, getValue.Kind)
+        Assert.Equal(1, getValue.ParameterCount)
+
+        let selection properties =
+            { Name = "BooleanGetMethodName"
+              RulesetName = "naming"
+              Priority = 3
+              Properties = properties }
+
+        let rule =
+            Rules.all
+            |> List.find (fun candidate -> candidate.Name = "BooleanGetMethodName")
+
+        let violationNames properties =
+            rule.Check analyzed (selection properties)
+            |> List.map (fun violation ->
+                let matchResult =
+                    System.Text.RegularExpressions.Regex.Match(violation.Description, "'([^']+)'")
+
+                matchResult.Groups[1].Value)
+
+        let defaultNames = violationNames Map.empty
+
+        let disabledNames =
+            violationNames (Map.ofList [ "checkParameterizedMethods", "false" ])
+
+        Assert.Contains("GetReady", defaultNames)
+        Assert.Contains("GetValue", defaultNames)
+        Assert.DoesNotContain("Item", defaultNames)
+        Assert.Contains("GetReady", disabledNames)
+        Assert.DoesNotContain("GetValue", disabledNames)
+        Assert.DoesNotContain("Item", disabledNames)
+
+    [<Fact>]
     let ``mutually recursive and let-bindings are distinct declarations with independent metrics`` () =
         let analyzed =
             analyzeSource
