@@ -658,7 +658,9 @@ module Model =
     let private enclosingBody (declarations: Declaration list) line =
         declarations
         |> List.filter (fun declaration ->
-            (declaration.Kind = Function || declaration.Kind = Member || declaration.Kind = Property)
+            (declaration.Kind = Function
+             || declaration.Kind = Member
+             || declaration.Kind = Property)
             && declaration.Location.StartLine < line
             && declaration.ScopeStartLine <= line
             && declaration.ScopeEndLine >= line)
