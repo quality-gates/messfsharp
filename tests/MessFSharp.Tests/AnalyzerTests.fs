@@ -944,7 +944,7 @@ let run status =
             |> List.filter (fun violation -> violation.RuleName = "EmptyCatchBlock")
             |> List.map (fun violation -> violation.Location.StartLine)
 
-        Assert.Equal<int list>([ 7; 17; 25 ], catchLines)
+        Assert.Equal<int list>([ 6; 15; 22 ], catchLines)
 
     [<Fact>]
     let ``interpolated string holes are scanned and referenced bindings are not unused`` () =

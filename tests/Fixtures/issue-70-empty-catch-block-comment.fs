@@ -3,8 +3,7 @@ module Issue70
 let multilineBlockComment x =
     try
         x
-    with
-    | _ ->
+    with _ ->
         (*
           explanation
         *)
@@ -13,14 +12,12 @@ let multilineBlockComment x =
 let singleLineBlockComment x =
     try
         x
-    with
-    | _ ->
+    with _ ->
         (* explanation *)
         ()
 
 let sameLineBlockComment x =
     try
         x
-    with
-    | _ ->
+    with _ ->
         (* explanation *) ()
