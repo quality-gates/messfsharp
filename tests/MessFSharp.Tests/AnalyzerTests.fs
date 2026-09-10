@@ -82,6 +82,89 @@ type Service() =
         Assert.Equal(1, declarationCount "Rate")
 
     [<Fact>]
+    let ``let bang bindings are local to computation expressions`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let run work = async {
+    let! result = work
+    return 1
+}
+"""
+
+        let resultDeclaration =
+            analyzed.Declarations
+            |> List.find (fun declaration -> declaration.Name = "result")
+
+        let selection =
+            { Name = "UnusedLocalVariable"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule =
+            Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
+
+        let violations = rule.Check analyzed selection
+
+        Assert.Contains(violations, fun violation -> violation.Description = "Local binding 'result' is never used.")
+        Assert.False(resultDeclaration.IsModuleLevel)
+
+    [<Fact>]
+    let ``let bang bindings are local inside module-level computation values`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let workflow = async {
+    let! result = work
+    return ()
+}
+"""
+
+        let resultDeclaration =
+            analyzed.Declarations
+            |> List.find (fun declaration -> declaration.Name = "result")
+
+        let selection =
+            { Name = "UnusedLocalVariable"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule =
+            Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
+
+        let violations = rule.Check analyzed selection
+
+        Assert.Contains(violations, fun violation -> violation.Description = "Local binding 'result' is never used.")
+        Assert.False(resultDeclaration.IsModuleLevel)
+
+    [<Fact>]
+    let ``used let bang bindings inside module-level computation values are not unused`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let workflow = async {
+    let! result = work
+    return result
+}
+"""
+
+        let selection =
+            { Name = "UnusedLocalVariable"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule =
+            Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
+
+        Assert.Empty(rule.Check analyzed selection)
+
+    [<Fact>]
     let ``type methods count each member definition once`` () =
         let analyzed =
             analyzeSource
