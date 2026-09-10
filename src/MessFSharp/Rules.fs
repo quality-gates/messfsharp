@@ -392,6 +392,18 @@ module Rules =
 
     let private mapFactories = set [ "ofList"; "ofArray"; "ofSeq" ]
 
+    let private isQualifiedTypeConstructor (tokens: SyntaxToken array) (nameIndex: int) =
+        if nameIndex < 2 || tokens[nameIndex - 2].Kind <> Identifier then
+            false
+        else
+            let mutable j = nameIndex - 2
+
+            while j >= 2 && tokens[j - 1].Text = "." && tokens[j - 2].Kind = Identifier do
+                j <- j - 2
+
+            let leftmost = tokens[j].Text
+            leftmost.Length > 0 && Char.IsUpper(leftmost[0])
+
     let private isMapConstruction (tokens: SyntaxToken array) (i: int) =
         let token = tokens[i]
 
@@ -404,6 +416,8 @@ module Rules =
                         token.Line
 
                 Some(startLine, i + 1)
+            elif token.Text = "Dictionary" && isQualifiedTypeConstructor tokens i then
+                Some(token.Line, i + 1)
             else
                 None
         elif
@@ -505,6 +519,46 @@ module Rules =
         else
             tryExtractLiteralKey tokens index
 
+    let private isKeyValuePairEntry (tokens: SyntaxToken array) (index: int) =
+        if index >= tokens.Length || tokens[index].Kind <> Identifier then
+            None
+        else
+            let mutable last = index
+
+            while last + 2 < tokens.Length
+                  && tokens[last + 1].Text = "."
+                  && tokens[last + 2].Kind = Identifier do
+                last <- last + 2
+
+            if tokens[last].Text <> "KeyValuePair" then
+                None
+            else
+                let mutable k = last + 1
+
+                if k < tokens.Length && tokens[k].Kind = Operator && tokens[k].Text = "<" then
+                    let mutable angleDepth = 1
+                    k <- k + 1
+
+                    while k < tokens.Length && angleDepth > 0 do
+                        if tokens[k].Kind = Operator && tokens[k].Text = "<" then
+                            angleDepth <- angleDepth + 1
+                        elif tokens[k].Kind = Operator && tokens[k].Text = ">" then
+                            angleDepth <- angleDepth - 1
+
+                        k <- k + 1
+
+                if k < tokens.Length && tokens[k].Kind = Punctuation && tokens[k].Text = "(" then
+                    match tryExtractKey tokens (k + 1) with
+                    | Some(key, afterKey) when
+                        afterKey < tokens.Length
+                        && tokens[afterKey].Kind = Punctuation
+                        && tokens[afterKey].Text = ","
+                        ->
+                        Some(key, afterKey + 1)
+                    | _ -> None
+                else
+                    None
+
     let private isParenEntry (tokens: SyntaxToken array) (index: int) =
         if
             index < tokens.Length
@@ -530,7 +584,7 @@ module Rules =
             && tokens[afterKey].Text = ","
             ->
             Some(key, afterKey + 1)
-        | _ -> None
+        | _ -> isKeyValuePairEntry tokens index
 
     let private extractKeys (tokens: SyntaxToken array) =
         let keys = ResizeArray<string>()
