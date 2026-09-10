@@ -989,6 +989,15 @@ module Model =
                 | _ -> None)
             |> Set.ofList
 
+        let activePatternBindingLines =
+            facts.Declarations
+            |> List.choose (fun fact ->
+                match fact.Kind with
+                | SyntaxModel.BindingFact when fact.Name.StartsWith("|", StringComparison.Ordinal) ->
+                    Some fact.Location.StartLine
+                | _ -> None)
+            |> Set.ofList
+
         for lineNumber in 1 .. source.Lines.Length do
             let line = source.Lines[lineNumber - 1]
             let indent = indentation line
@@ -1212,7 +1221,13 @@ module Model =
                         else
                             let letMatch = letPattern.Match(line)
 
-                            if letMatch.Success && not (destructuredBindingLines.Contains lineNumber) then
+                            if
+                                letMatch.Success
+                                && not (
+                                    destructuredBindingLines.Contains lineNumber
+                                    || activePatternBindingLines.Contains lineNumber
+                                )
+                            then
                                 match firstName letMatch.Groups["binding"].Value with
                                 | Some name ->
                                     let endLine = scopeEnd source lineNumber indent Function
@@ -1273,7 +1288,7 @@ module Model =
                             else
                                 let andMatch = andPattern.Match(line)
 
-                                if andMatch.Success then
+                                if andMatch.Success && not (activePatternBindingLines.Contains lineNumber) then
                                     match firstName andMatch.Groups[2].Value with
                                     | Some name ->
                                         let endLine = scopeEnd source lineNumber indent Function
@@ -1697,12 +1712,20 @@ module Model =
                 let isModuleLevel =
                     enclosingBody (result |> Seq.toList) fact.Location.StartLine |> Option.isNone
 
+                let startLine = fact.Location.StartLine
+
+                let endLine =
+                    if isFunction then
+                        scopeEnd source startLine (indentation (lineAt source.Lines startLine)) Function
+                    else
+                        fact.Location.EndLine
+
                 result.Add(
                     makeDeclaration
                         source
                         fact.Name
                         (if isFunction then Function else Value)
-                        fact.Location.StartLine
+                        startLine
                         fact.Location.StartColumn
                         (parent |> Option.map (fun item -> item.Name))
                         (parent |> Option.map (fun item -> item.Kind))
@@ -1716,11 +1739,11 @@ module Model =
                         isFunction
                         isModuleLevel
                         fact.ParameterCount
-                        fact.Location.StartLine
-                        fact.Location.EndLine
-                        fact.Location.StartLine
-                        fact.Location.EndLine
-                        (sourceText source fact.Location.StartLine fact.Location.EndLine)
+                        startLine
+                        endLine
+                        startLine
+                        endLine
+                        (sourceText source startLine endLine)
                 )
             | _ -> ()
 
