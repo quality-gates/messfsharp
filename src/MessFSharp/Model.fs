@@ -1650,6 +1650,24 @@ module Model =
                         TypeShape = shape })
                 |> Option.defaultValue declaration)
 
+    let private isOperatorDeclarationName (name: string) =
+        name
+        |> Seq.exists (fun character -> "!%&*+-./<=>?@^|~:".IndexOf(character) >= 0)
+
+    let private compilerBindingMatches (declaration: Declaration) (fact: SyntaxModel.DeclarationFact) =
+        let sameSourceLocation =
+            (declaration.Location.StartLine = fact.Location.StartLine)
+            || (fact.Location.StartLine <= declaration.Location.StartLine
+                && declaration.Location.StartLine <= fact.Location.EndLine)
+
+        let sameName = declaration.Name = fact.Name
+
+        let normalizedOperatorName =
+            isOperatorDeclarationName declaration.Name
+            && fact.Name.StartsWith("op_", StringComparison.Ordinal)
+
+        sameSourceLocation && (sameName || normalizedOperatorName)
+
     let private addCompilerBindings source (facts: SyntaxModel.Facts) (declarations: Declaration list) =
         let result = ResizeArray<Declaration>(declarations :> seq<Declaration>)
 
@@ -1658,10 +1676,7 @@ module Model =
             | SyntaxModel.BindingFact when
                 result
                 |> Seq.exists (fun declaration ->
-                    declaration.Name = fact.Name
-                    && ((declaration.Location.StartLine = fact.Location.StartLine)
-                        || (fact.Location.StartLine <= declaration.Location.StartLine
-                            && declaration.Location.StartLine <= fact.Location.EndLine))
+                    compilerBindingMatches declaration fact
                     && (declaration.Kind = Function
                         || declaration.Kind = Value
                         || declaration.Kind = Member

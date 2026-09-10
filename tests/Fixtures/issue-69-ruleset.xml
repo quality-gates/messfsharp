@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ruleset name="issue-69">
+  <rule name="ExcessivePublicCount">
+    <property name="maximum" value="1" />
+  </rule>
+</ruleset>

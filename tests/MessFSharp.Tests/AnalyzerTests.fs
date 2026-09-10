@@ -82,6 +82,25 @@ type Service() =
         Assert.Equal(1, declarationCount "Rate")
 
     [<Fact>]
+    let ``operator compiler bindings retain one source-facing declaration`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let ( +++ ) left right = left + right
+"""
+
+        let operatorNames =
+            analyzed.Declarations
+            |> List.filter (fun declaration ->
+                declaration.Parent = Some "Sample"
+                && declaration.IsPublic
+                && (declaration.Kind = Function || declaration.Kind = Value))
+            |> List.map (fun declaration -> declaration.Name)
+
+        Assert.Equal<string list>([ "+++" ], operatorNames)
+
+    [<Fact>]
     let ``let bang bindings are local to computation expressions`` () =
         let analyzed =
             analyzeSource

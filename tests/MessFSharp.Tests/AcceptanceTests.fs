@@ -177,6 +177,18 @@ module AcceptanceTests =
         Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
 
     [<Fact>]
+    let ``operator bindings are counted once by the packaged executable`` () =
+        let source = fixture "issue-69-operator-bindings.fs"
+        let ruleset = fixture "issue-69-ruleset.xml"
+
+        let result =
+            PackagedTool.run [ source; "text"; ruleset; "--only"; "ExcessivePublicCount" ]
+
+        Assert.Equal(0, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+        Assert.Equal("", result.StandardOutput)
+
+    [<Fact>]
     let ``declarations in inactive conditional branches raise no violations`` () =
         let result =
             PackagedTool.run
