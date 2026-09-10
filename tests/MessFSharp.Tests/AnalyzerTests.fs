@@ -1281,6 +1281,26 @@ let annotated (value: int) = value
         )
 
     [<Fact>]
+    let ``boolean argument flag does not treat if text in comments and strings as control flow`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                { Defaults.analysisOptions with
+                    Paths = [ fixture "issue-63-boolean-if-text.fs" ]
+                    Rulesets = [ "cleancode" ]
+                    Format = Json
+                    Only = [ "BooleanArgumentFlag" ] }
+
+        Assert.Empty(result.Report.Errors)
+
+        let flagLines =
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = "BooleanArgumentFlag")
+            |> List.map (fun violation -> violation.Location.StartLine)
+
+        Assert.Equal<int list>([ 15 ], flagLines)
+
+    [<Fact>]
     let ``boolean argument flag does not match unanchored substring use in words like isUser or paused`` () =
         let analyzed =
             analyzeSource
