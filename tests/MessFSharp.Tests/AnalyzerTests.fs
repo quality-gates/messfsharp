@@ -95,6 +95,51 @@ type Service() =
         Assert.Equal(2, (Map.find "Service" analyzed.TypeMethods |> List.length))
 
     [<Fact>]
+    let ``nested local functions are excluded from type method counts`` () =
+        let analyzed =
+            analyzeSource
+                """module TestNestedTypeFunctions
+
+type Service =
+    member _.Run() =
+        let helper value = value + 1
+        helper 1
+"""
+
+        let selection =
+            { Name = "TooManyMethods"
+              RulesetName = "test"
+              Priority = 3
+              Properties = Map.ofList [ "maxmethods", "1" ] }
+
+        let rule = Rules.all |> List.find (fun item -> item.Name = "TooManyMethods")
+
+        Assert.Empty(rule.Check analyzed selection)
+        Assert.Equal(1, (Map.find "Service" analyzed.TypeMethods |> List.length))
+
+    [<Fact>]
+    let ``nested local functions are excluded from module method counts`` () =
+        let analyzed =
+            analyzeSource
+                """module TestNestedModuleFunctions
+
+let outer value =
+    let helper x = x + 1
+    helper value
+"""
+
+        let selection =
+            { Name = "TooManyMethods"
+              RulesetName = "test"
+              Priority = 3
+              Properties = Map.ofList [ "maxmethods", "1" ] }
+
+        let rule = Rules.all |> List.find (fun item -> item.Name = "TooManyMethods")
+
+        Assert.Empty(rule.Check analyzed selection)
+        Assert.Equal(1, (Map.find "TestNestedModuleFunctions" analyzed.TypeMethods |> List.length))
+
+    [<Fact>]
     let ``private members called by other members are not flagged unused`` () =
         let analyzed =
             analyzeSource

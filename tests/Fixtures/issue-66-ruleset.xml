@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ruleset name="issue-66">
+  <rule name="TooManyMethods">
+    <property name="maxmethods" value="1" />
+  </rule>
+</ruleset>
