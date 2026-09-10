@@ -43,7 +43,7 @@ module Model =
 
     let private letPattern =
         declarationRegex
-            "^\\s*let\\s+(?:(?:(?<accessibility>public|private|internal)|(?<modifier>inline|rec)|(?<mutable>mutable))\\s+)*(?<binding>.+?)\\s*="
+            "^\\s*let!?\\s+(?:(?:(?<accessibility>public|private|internal)|(?<modifier>inline|rec)|(?<mutable>mutable))\\s+)*(?<binding>.+?)\\s*="
 
     let private andPattern = declarationRegex "^\\s*and\\s+(?:(mutable)\\s+)?(.+?)\\s*="
 
@@ -660,7 +660,8 @@ module Model =
         |> List.filter (fun declaration ->
             (declaration.Kind = Function
              || declaration.Kind = Member
-             || declaration.Kind = Property)
+             || declaration.Kind = Property
+             || declaration.Kind = Value)
             && declaration.Location.StartLine < line
             && declaration.ScopeStartLine <= line
             && declaration.ScopeEndLine >= line)
@@ -696,7 +697,7 @@ module Model =
         then
             declarations
             |> List.filter (fun candidate ->
-                (candidate.Kind = Function || candidate.Kind = Member)
+                (candidate.Kind = Function || candidate.Kind = Member || candidate.Kind = Value)
                 && candidate.Location.StartLine < declaration.Location.StartLine
                 && candidate.ScopeStartLine <= declaration.Location.StartLine
                 && candidate.ScopeEndLine >= declaration.Location.StartLine)
