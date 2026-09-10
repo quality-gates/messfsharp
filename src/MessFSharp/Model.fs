@@ -1474,11 +1474,22 @@ module Model =
         for typeDeclaration in
             declarations
             |> List.filter (fun declaration -> declaration.Kind = Type && declaration.IsClassLike) do
-            let header = lineAt source.Lines typeDeclaration.Location.StartLine
+            let header = typeDeclaration.Text
             let openIndex = header.IndexOf('(')
             let equalsIndex = header.IndexOf('=')
 
-            if openIndex >= 0 && equalsIndex > openIndex then
+            let isTypeExtension =
+                openIndex >= 0 && Regex.IsMatch(header.Substring(0, openIndex), "\\bwith\\b")
+
+            if openIndex >= 0 && equalsIndex > openIndex && not isTypeExtension then
+                let header = header.Substring(0, equalsIndex + 1)
+
+                let startColumn =
+                    if header.Substring(0, openIndex).IndexOf('\n') >= 0 then
+                        typeDeclaration.Location.StartColumn
+                    else
+                        openIndex + 1
+
                 let synthetic = constructorParameterText header typeDeclaration.Name
 
                 let parameterCount =
@@ -1490,7 +1501,7 @@ module Model =
                         typeDeclaration.Name
                         Constructor
                         typeDeclaration.Location.StartLine
-                        (openIndex + 1)
+                        startColumn
                         (Some typeDeclaration.Name)
                         (Some Type)
                         ""

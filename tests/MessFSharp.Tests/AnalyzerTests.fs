@@ -517,6 +517,54 @@ type Service() =
         )
 
     [<Fact>]
+    let ``multiline primary constructors contribute their parameter groups`` () =
+        let workspace = Directory.CreateTempSubdirectory("messfsharp-issue-62-")
+
+        try
+            let sourcePath = Path.Combine(workspace.FullName, "issue-62.fs")
+
+            File.WriteAllText(
+                sourcePath,
+                """module MultilineConstructor
+
+type Service
+    (
+        first: int,
+        second: int
+    ) =
+    member _.Run() = first + second
+"""
+            )
+
+            let result =
+                Engine.run "0.1.0" (options [ sourcePath ] [ fixture "constructor-ruleset.xml" ] Json)
+
+            Assert.Empty(result.Report.Errors)
+
+            Assert.Contains(
+                result.Report.Violations,
+                fun violation ->
+                    violation.RuleName = "ExcessiveParameterList"
+                    && violation.Description = "Parameter count 2 exceeds maximum 1."
+            )
+        finally
+            workspace.Delete(true)
+
+    [<Fact>]
+    let ``type extensions do not contribute primary constructors`` () =
+        let analyzed =
+            analyzeSource
+                """module TypeExtensions
+
+type Service = class end
+
+type Service with
+    member _.Run() = 42
+"""
+
+        Assert.DoesNotContain(analyzed.Declarations, fun declaration -> declaration.Kind = Constructor)
+
+    [<Fact>]
     let ``exit expressions are token based rather than text based`` () =
         let result =
             Engine.run "0.1.0" (options [ fixture "exit-cases.fs" ] [ fixture "exit-ruleset.xml" ] Json)
