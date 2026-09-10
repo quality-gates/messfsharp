@@ -101,6 +101,46 @@ let ( +++ ) left right = left + right
         Assert.Equal<string list>([ "+++" ], operatorNames)
 
     [<Fact>]
+    let ``tuple destructuring bindings are values rather than functions and parameters`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let (first, second) = (1, 2)
+let total = first + second
+"""
+
+        let declaration name =
+            analyzed.Declarations |> List.find (fun item -> item.Name = name)
+
+        let first = declaration "first"
+        let second = declaration "second"
+
+        Assert.Equal(Value, first.Kind)
+        Assert.False(first.IsFunction)
+        Assert.Equal(0, first.ParameterCount)
+        Assert.Equal(Some "Sample", first.Parent)
+        Assert.Equal(Value, second.Kind)
+        Assert.False(second.IsFunction)
+        Assert.Equal(0, second.ParameterCount)
+        Assert.Equal(Some "Sample", second.Parent)
+        Assert.DoesNotContain(analyzed.Declarations, fun item -> item.Kind = Parameter)
+        Assert.DoesNotContain(
+            analyzed.TypeMethods |> Map.tryFind "Sample" |> Option.defaultValue [],
+            fun item -> item.Name = "first" || item.Name = "second"
+        )
+
+        let rule = Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
+
+        let selection =
+            { Name = "UnusedFormalParameter"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        Assert.Empty(rule.Check analyzed selection)
+
+    [<Fact>]
     let ``let bang bindings are local to computation expressions`` () =
         let analyzed =
             analyzeSource
