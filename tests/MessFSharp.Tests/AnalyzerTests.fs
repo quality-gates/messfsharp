@@ -142,6 +142,137 @@ let total = first + second
         Assert.Empty(rule.Check analyzed selection)
 
     [<Fact>]
+    let ``record pattern bindings are values rather than field labels and parameters`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+type Pair = { First: int; Second: int }
+
+let readFirst () =
+    let { First = usedFirst; Second = unusedSecond } = { First = 1; Second = 2 }
+    usedFirst
+"""
+
+        let declaration name =
+            analyzed.Declarations |> List.find (fun item -> item.Name = name)
+
+        let usedFirst = declaration "usedFirst"
+        let unusedSecond = declaration "unusedSecond"
+
+        Assert.Equal(Value, usedFirst.Kind)
+        Assert.False(usedFirst.IsFunction)
+        Assert.Equal(0, usedFirst.ParameterCount)
+        Assert.Equal(Some "readFirst", usedFirst.Parent)
+        Assert.False(usedFirst.IsModuleLevel)
+        Assert.Equal(Value, unusedSecond.Kind)
+        Assert.False(unusedSecond.IsFunction)
+        Assert.Equal(0, unusedSecond.ParameterCount)
+        Assert.Equal(Some "readFirst", unusedSecond.Parent)
+
+        Assert.DoesNotContain(
+            analyzed.Declarations,
+            fun item -> (item.Kind = Value || item.Kind = Parameter) && item.Name = "First"
+        )
+
+        let unusedLocalRule =
+            Rules.all |> List.find (fun item -> item.Name = "UnusedLocalVariable")
+
+        let localSelection =
+            { Name = "UnusedLocalVariable"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let unusedLocalViolations = unusedLocalRule.Check analyzed localSelection
+
+        Assert.Equal<string list>(
+            [ "Local binding 'unusedSecond' is never used." ],
+            unusedLocalViolations |> List.map (fun violation -> violation.Description)
+        )
+
+        let formalParameterRule =
+            Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
+
+        let parameterSelection =
+            { Name = "UnusedFormalParameter"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        Assert.Empty(formalParameterRule.Check analyzed parameterSelection)
+
+        let camelCaseRule =
+            Rules.all |> List.find (fun item -> item.Name = "CamelCaseVariableName")
+
+        let camelSelection =
+            { Name = "CamelCaseVariableName"
+              RulesetName = "controversial"
+              Priority = 3
+              Properties = Map.empty }
+
+        Assert.DoesNotContain(
+            camelCaseRule.Check analyzed camelSelection,
+            fun violation -> violation.Description.Contains("'First'")
+        )
+
+    [<Fact>]
+    let ``list pattern bindings are values rather than functions and parameters`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let readHead () =
+    let [ usedHead; unusedTail ] = [ 1; 2 ]
+    usedHead
+"""
+
+        let declaration name =
+            analyzed.Declarations |> List.find (fun item -> item.Name = name)
+
+        let usedHead = declaration "usedHead"
+        let unusedTail = declaration "unusedTail"
+
+        Assert.Equal(Value, usedHead.Kind)
+        Assert.False(usedHead.IsFunction)
+        Assert.Equal(0, usedHead.ParameterCount)
+        Assert.Equal(Some "readHead", usedHead.Parent)
+        Assert.False(usedHead.IsModuleLevel)
+        Assert.Equal(Value, unusedTail.Kind)
+        Assert.False(unusedTail.IsFunction)
+        Assert.Equal(0, unusedTail.ParameterCount)
+        Assert.Equal(Some "readHead", unusedTail.Parent)
+
+        Assert.DoesNotContain(analyzed.Declarations, fun item -> item.Kind = Parameter)
+
+        let unusedLocalRule =
+            Rules.all |> List.find (fun item -> item.Name = "UnusedLocalVariable")
+
+        let localSelection =
+            { Name = "UnusedLocalVariable"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let unusedLocalViolations = unusedLocalRule.Check analyzed localSelection
+
+        Assert.Equal<string list>(
+            [ "Local binding 'unusedTail' is never used." ],
+            unusedLocalViolations |> List.map (fun violation -> violation.Description)
+        )
+
+        let formalParameterRule =
+            Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
+
+        let parameterSelection =
+            { Name = "UnusedFormalParameter"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        Assert.Empty(formalParameterRule.Check analyzed parameterSelection)
+
+    [<Fact>]
     let ``active pattern inputs are not reported as unused formal parameters`` () =
         let analyzed =
             analyzeSource
