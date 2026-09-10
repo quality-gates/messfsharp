@@ -146,6 +146,14 @@ module Rules =
     let private bodyHas (declaration: Declaration) (text: string) =
         declaration.Text.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0
 
+    let private bodyHasKeyword (file: AnalyzedFile) (declaration: Declaration) (keyword: string) =
+        file.Tokens
+        |> Array.exists (fun token ->
+            token.Kind = Keyword
+            && token.Text = keyword
+            && token.Line >= declaration.BodyStartLine
+            && token.Line <= declaration.BodyEndLine)
+
     let private mutationScope (file: AnalyzedFile) (declaration: Declaration) =
         file.Declarations
         |> List.filter (fun candidate ->
@@ -1290,7 +1298,7 @@ module Rules =
                                 |> List.sortByDescending (fun candidate -> candidate.Location.StartLine)
                                 |> List.tryHead
                                 |> Option.exists (fun candidate ->
-                                    (bodyHas candidate "if ")
+                                    (bodyHasKeyword file candidate "if")
                                     && file.Tokens
                                        |> Array.filter (fun token ->
                                            token.Text = declaration.Name
