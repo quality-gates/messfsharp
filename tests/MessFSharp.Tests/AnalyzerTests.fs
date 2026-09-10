@@ -1540,6 +1540,75 @@ let myMap =
         Assert.Empty(violations)
 
     [<Fact>]
+    let ``duplicated array key detects duplicate KeyValuePair entries in Dictionary constructor`` () =
+        let analyzed =
+            analyzeSource
+                """module TestDictionary
+open System.Collections.Generic
+
+let duplicates =
+    Dictionary<string, int>(
+        [ KeyValuePair<string, int>("same", 1)
+          KeyValuePair<string, int>("same", 2) ])
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Single(violations) |> ignore
+
+    [<Fact>]
+    let ``duplicated array key detects duplicate KeyValuePair entries in qualified Dictionary constructor`` () =
+        let analyzed =
+            analyzeSource
+                """module TestDictionary
+open System.Collections.Generic
+
+let duplicates =
+    System.Collections.Generic.Dictionary<string, int>(
+        [ System.Collections.Generic.KeyValuePair<string, int>("same", 1)
+          System.Collections.Generic.KeyValuePair<string, int>("same", 2) ])
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Single(violations) |> ignore
+
+    [<Fact>]
+    let ``duplicated array key ignores distinct KeyValuePair entries in Dictionary constructor`` () =
+        let analyzed =
+            analyzeSource
+                """module TestDictionary
+open System.Collections.Generic
+
+let distinct =
+    Dictionary<string, int>(
+        [ KeyValuePair<string, int>("first", 1)
+          KeyValuePair<string, int>("second", 2) ])
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
 
 
     let ``static access ignores open directives`` () =
