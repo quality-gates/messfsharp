@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.4
+
+- Fix duplicate `KeyValuePair` keys in `Dictionary` constructors going undetected (#91).
+- Fix record and list-pattern `let` bindings being misclassified as functions (#90).
+- Fix active-pattern input references leaking outside the binding body (#89).
+- Fix block comments affecting rule length checks (#88).
+- Fix tuple-destructured `let` bindings being misclassified as functions (#87).
+- Fix `EmptyCatchBlock` false positives when block comments precede the handler (#86).
+- Fix duplicate normalized operator bindings (#85).
+- Fix property accessors being counted as function parameters (#68) (#80).
+- Fix `let!` bindings being classified as functions (#79).
+- Fix nested functions leaking into outer body scopes (#66) (#78).
+- Fix declarations being detected in multiline strings and comments (#65) (#77).
+- Fix non-code text affecting `LackOfCohesion` references (#64) (#76).
+- Fix `BooleanArgumentFlag` false positives on string literals and identifiers (#63) (#75).
+- Fix multiline primary constructors not being detected (#62) (#74).
+- Fix declarations in inactive `#if` branches being analyzed (#73).
+- Fix member-local `let` bindings being reported as class fields.
+
 ## 0.1.3
 
 - Fix `ElseExpression` false positives when string literals or comments contain `raise`, `failwith`, or `Environment.Exit` (#34).
