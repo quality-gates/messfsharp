@@ -189,6 +189,23 @@ module AcceptanceTests =
         Assert.Equal("", result.StandardOutput)
 
     [<Fact>]
+    let ``block-comment-only lines are ignored by excessive method length`` () =
+        let result =
+            PackagedTool.run
+                [ fixture "issue-81-block-comment-length.fs"
+                  "json"
+                  fixture "issue-81-ruleset.xml"
+                  "--only"
+                  "ExcessiveMethodLength" ]
+
+        Assert.Equal(0, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        use document = JsonDocument.Parse(result.StandardOutput)
+        Assert.Equal(0, document.RootElement.GetProperty("errors").GetArrayLength())
+        Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
+
+    [<Fact>]
     let ``declarations in inactive conditional branches raise no violations`` () =
         let result =
             PackagedTool.run
