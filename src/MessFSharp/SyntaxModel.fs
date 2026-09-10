@@ -65,6 +65,12 @@ module SyntaxModel =
         match pattern with
         | SynPat.Named(SynIdent(identifier, _), _, _, patternRange) -> [ identifier.idText, patternRange ]
         | SynPat.Tuple(elementPats = elements) -> elements |> List.collect parameterPatterns
+        | SynPat.Record(fieldPats = fields) ->
+            fields
+            |> List.collect (fun field ->
+                match field with
+                | NamePatPairField(pat = subPattern) -> parameterPatterns subPattern)
+        | SynPat.ArrayOrList(elementPats = elements) -> elements |> List.collect parameterPatterns
         | SynPat.Paren(pat = nested)
         | SynPat.Typed(pat = nested)
         | SynPat.Attrib(pat = nested) -> parameterPatterns nested
