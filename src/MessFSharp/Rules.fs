@@ -280,6 +280,12 @@ module Rules =
     let private tokensOnLine (file: AnalyzedFile) lineNumber =
         file.Tokens |> Array.filter (fun token -> token.Line = lineNumber)
 
+    let private codeTextOnLine (file: AnalyzedFile) lineNumber afterColumn =
+        tokensOnLine file lineNumber
+        |> Array.filter (fun token -> token.Column > afterColumn)
+        |> Array.map (fun token -> token.Text)
+        |> String.concat ""
+
     let private isElseFlattenable (file: AnalyzedFile) lineNumber column =
         let currentLine = file.Source.Lines[lineNumber - 1]
         let prefixLength = min currentLine.Length (max 0 (column - 1))
@@ -1589,30 +1595,29 @@ module Rules =
           Description = "Reports exception handlers whose branch does no meaningful work."
           Check =
             fun file selection ->
-                let lines = file.Source.Lines
+                let lineCount = file.Source.Lines.Length
 
                 let clauseLine (clause: SourceLocation) =
                     let lineNumber = clause.StartLine
-                    let line = lines[lineNumber - 1]
-                    let arrowIndex = line.IndexOf("->", StringComparison.Ordinal)
+
+                    let arrowColumn =
+                        tokensOnLine file lineNumber
+                        |> Array.tryFind (fun token -> token.Kind = Operator && token.Text = "->")
+                        |> Option.map (fun token -> token.Column)
 
                     let afterArrow =
-                        if arrowIndex >= 0 then
-                            line.Substring(arrowIndex + 2).Trim()
-                        else
-                            ""
+                        match arrowColumn with
+                        | Some column -> codeTextOnLine file lineNumber column
+                        | None -> ""
 
                     let mutable nextIndex = lineNumber
                     let mutable nextMeaningful = None
 
-                    while nextIndex < lines.Length && nextMeaningful.IsNone do
-                        let candidate = lines[nextIndex]
+                    while nextIndex < lineCount && nextMeaningful.IsNone do
+                        let text = codeTextOnLine file (nextIndex + 1) 0
 
-                        if
-                            not (String.IsNullOrWhiteSpace candidate)
-                            && not (candidate.TrimStart().StartsWith("//", StringComparison.Ordinal))
-                        then
-                            nextMeaningful <- Some(candidate.Trim())
+                        if text <> "" then
+                            nextMeaningful <- Some text
 
                         nextIndex <- nextIndex + 1
 
