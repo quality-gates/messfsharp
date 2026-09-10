@@ -14,6 +14,7 @@ module SyntaxModel =
         | ModuleFact
         | TypeFact of TypeShape
         | BindingFact
+        | DestructuredBindingFact
 
     type DeclarationFact =
         { Name: string
@@ -180,6 +181,29 @@ module SyntaxModel =
         | SynExpr.TryWith(withCases = clauses) -> clauses |> List.map (fun clause -> location fileName clause.Range)
         | _ -> []
 
+    let private bindingFacts fileName pattern isMutable nodeRange =
+        let bindingLocation = location fileName nodeRange
+
+        match patternName pattern with
+        | Some name ->
+            let parameters = bindingParameters fileName pattern
+
+            [ { Name = name
+                Kind = BindingFact
+                Location = bindingLocation
+                IsMutable = isMutable
+                ParameterCount = bindingParameterCount pattern
+                Parameters = parameters } ]
+        | None ->
+            parameterPatterns pattern
+            |> List.map (fun (name, patternRange) ->
+                { Name = name
+                  Kind = DestructuredBindingFact
+                  Location = location fileName patternRange
+                  IsMutable = isMutable
+                  ParameterCount = 0
+                  Parameters = [] })
+
     let normalize fileName (parsedInput: ParsedInput) =
         let folder (declarations, expressions, handlerClauses, scopes, references) _ node =
             match node with
@@ -225,26 +249,16 @@ module SyntaxModel =
                 :: scopes,
                 references
             | SyntaxNode.SynBinding(SynBinding(headPat = pattern; isMutable = isMutable; range = nodeRange)) ->
-                match patternName pattern with
-                | Some name ->
-                    let fact =
-                        let parameters = bindingParameters fileName pattern
+                let bindingLocation = location fileName nodeRange
+                let facts = bindingFacts fileName pattern isMutable nodeRange
 
-                        { Name = name
-                          Kind = BindingFact
-                          Location = location fileName nodeRange
-                          IsMutable = isMutable
-                          ParameterCount = bindingParameterCount pattern
-                          Parameters = parameters }
-
-                    fact :: declarations,
-                    expressions,
-                    handlerClauses,
-                    { Location = fact.Location
-                      Parent = None }
-                    :: scopes,
-                    references
-                | None -> declarations, expressions, handlerClauses, scopes, references
+                facts @ declarations,
+                expressions,
+                handlerClauses,
+                { Location = bindingLocation
+                  Parent = None }
+                :: scopes,
+                references
             | SyntaxNode.SynMatchClause clause ->
                 let expression =
                     { Kind = MatchClauseExpression

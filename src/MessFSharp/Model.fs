@@ -896,7 +896,7 @@ module Model =
             let topLevelDecisions =
                 decisions
                 |> List.filter (fun decision ->
-                    let decisionStartIndex, _, _, decisionEndExclusive = decision
+                    let decisionStartIndex, _, _, _ = decision
 
                     decisionStartIndex >= startIndex
                     && decisionStartIndex < endExclusive
@@ -978,8 +978,16 @@ module Model =
 
     let private lineCount startLine endLine = max 1 (endLine - startLine + 1)
 
-    let private buildBaseDeclarations source =
+    let private buildBaseDeclarations source (facts: SyntaxModel.Facts) =
         let declarations = ResizeArray<Declaration>()
+
+        let destructuredBindingLines =
+            facts.Declarations
+            |> List.choose (fun fact ->
+                match fact.Kind with
+                | SyntaxModel.DestructuredBindingFact -> Some fact.Location.StartLine
+                | _ -> None)
+            |> Set.ofList
 
         for lineNumber in 1 .. source.Lines.Length do
             let line = source.Lines[lineNumber - 1]
@@ -1204,7 +1212,7 @@ module Model =
                         else
                             let letMatch = letPattern.Match(line)
 
-                            if letMatch.Success then
+                            if letMatch.Success && not (destructuredBindingLines.Contains lineNumber) then
                                 match firstName letMatch.Groups["binding"].Value with
                                 | Some name ->
                                     let endLine = scopeEnd source lineNumber indent Function
@@ -1673,7 +1681,7 @@ module Model =
 
         for fact in facts.Declarations do
             match fact.Kind with
-            | SyntaxModel.BindingFact when
+            | (SyntaxModel.BindingFact | SyntaxModel.DestructuredBindingFact) when
                 result
                 |> Seq.exists (fun declaration ->
                     compilerBindingMatches declaration fact
@@ -1782,7 +1790,7 @@ module Model =
         let syntaxFacts = SyntaxModel.normalize source.FullPath parsedInput
 
         let baseDeclarations =
-            buildBaseDeclarations source
+            buildBaseDeclarations source syntaxFacts
             |> applyCompilerTypeShapes syntaxFacts
             |> addCompilerBindings source syntaxFacts
 
