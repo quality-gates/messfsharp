@@ -160,6 +160,23 @@ module AcceptanceTests =
         Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
 
     [<Fact>]
+    let ``nested local functions do not count as type or module methods`` () =
+        let result =
+            PackagedTool.run
+                [ fixture "issue-66-nested-local-functions.fs"
+                  "json"
+                  fixture "issue-66-ruleset.xml"
+                  "--only"
+                  "TooManyMethods" ]
+
+        Assert.Equal(0, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        use document = JsonDocument.Parse(result.StandardOutput)
+        Assert.Equal(0, document.RootElement.GetProperty("errors").GetArrayLength())
+        Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
+
+    [<Fact>]
     let ``declarations in inactive conditional branches raise no violations`` () =
         let result =
             PackagedTool.run

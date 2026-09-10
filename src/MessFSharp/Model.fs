@@ -667,6 +667,11 @@ module Model =
         |> List.sortByDescending (fun declaration -> declaration.Location.StartLine)
         |> List.tryHead
 
+    let private nearestDeclarationParent (declarations: Declaration list) line =
+        match enclosingBody declarations line with
+        | Some body -> Some body
+        | None -> nearestParent declarations line
+
     let private tokenCount (tokens: SyntaxToken array) name startLine endLine =
         tokens
         |> Array.filter (fun token -> token.Text = name && token.Line >= startLine && token.Line <= endLine)
@@ -1097,7 +1102,7 @@ module Model =
                     if signatureMatch.Success then
                         let name = signatureMatch.Groups[1].Value
                         let endLine = scopeEnd source lineNumber indent Function
-                        let parent = nearestParent (declarations |> Seq.toList) lineNumber
+                        let parent = nearestDeclarationParent (declarations |> Seq.toList) lineNumber
 
                         let moduleLevel =
                             match parent with
@@ -1213,7 +1218,7 @@ module Model =
 
                                     let accessibility = defaultArg (matchGroup letMatch "accessibility") ""
                                     let isMutable = (matchGroup letMatch "mutable").IsSome
-                                    let parent = nearestParent (declarations |> Seq.toList) lineNumber
+                                    let parent = nearestDeclarationParent (declarations |> Seq.toList) lineNumber
 
                                     let moduleLevel =
                                         match parent with
@@ -1259,7 +1264,7 @@ module Model =
 
                                         let parameterCount = parseParameterInfos declarationText name |> List.length
 
-                                        let parent = nearestParent (declarations |> Seq.toList) lineNumber
+                                        let parent = nearestDeclarationParent (declarations |> Seq.toList) lineNumber
 
                                         let moduleLevel =
                                             match parent with
@@ -1589,7 +1594,7 @@ module Model =
             | Parameter
             | Constructor -> declaration
             | _ ->
-                match nearestParent declarations declaration.Location.StartLine with
+                match nearestDeclarationParent declarations declaration.Location.StartLine with
                 | None -> declaration
                 | Some parent when
                     parent.Name = declaration.Name
@@ -1654,8 +1659,11 @@ module Model =
                         || declaration.Kind = Property))
                 |> not
                 ->
-                let parent = nearestParent (result |> Seq.toList) fact.Location.StartLine
+                let parent = nearestDeclarationParent (result |> Seq.toList) fact.Location.StartLine
                 let isFunction = fact.ParameterCount > 0
+
+                let isModuleLevel =
+                    enclosingBody (result |> Seq.toList) fact.Location.StartLine |> Option.isNone
 
                 result.Add(
                     makeDeclaration
@@ -1674,7 +1682,7 @@ module Model =
                         false
                         false
                         isFunction
-                        (parent |> Option.forall (fun item -> item.Kind <> Type))
+                        isModuleLevel
                         fact.ParameterCount
                         fact.Location.StartLine
                         fact.Location.EndLine
