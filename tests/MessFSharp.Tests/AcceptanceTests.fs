@@ -143,6 +143,23 @@ module AcceptanceTests =
         )
 
     [<Fact>]
+    let ``member-local bindings do not count as fields or unused private fields`` () =
+        let result =
+            PackagedTool.run
+                [ fixture "issue-60-member-local.fs"
+                  "json"
+                  fixture "all-rules.xml"
+                  "--only"
+                  "TooManyFields,UnusedPrivateField" ]
+
+        Assert.Equal(0, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        use document = JsonDocument.Parse(result.StandardOutput)
+        Assert.Equal(0, document.RootElement.GetProperty("errors").GetArrayLength())
+        Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
+
+    [<Fact>]
     let ``packaged executable with no arguments reports exact usage failure`` () =
         let result = PackagedTool.run []
         Assert.Equal(1, result.ExitCode)

@@ -658,7 +658,7 @@ module Model =
     let private enclosingBody (declarations: Declaration list) line =
         declarations
         |> List.filter (fun declaration ->
-            (declaration.Kind = Function || declaration.Kind = Member)
+            (declaration.Kind = Function || declaration.Kind = Member || declaration.Kind = Property)
             && declaration.Location.StartLine < line
             && declaration.ScopeStartLine <= line
             && declaration.ScopeEndLine >= line)
@@ -1402,7 +1402,9 @@ module Model =
                 let line = lineAt source.Lines lineNumber
 
                 let fieldMatches =
-                    if typeDeclaration.IsRecord then
+                    if enclosingBody declarations lineNumber |> Option.isSome then
+                        []
+                    elif typeDeclaration.IsRecord then
                         recordFieldPattern.Matches(line) |> Seq.cast<Match> |> Seq.toList
                     else
                         let fieldMatch = classFieldPattern.Match(line)
