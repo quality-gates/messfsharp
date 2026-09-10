@@ -1734,6 +1734,7 @@ module Model =
         result |> Seq.toList
 
     let analyze (source: SourceFile) (parsedInput: ParsedInput) =
+        let source = Preprocessor.maskInactiveLines source
         let tokens = Scanner.scan source
         let syntaxFacts = SyntaxModel.normalize source.FullPath parsedInput
 

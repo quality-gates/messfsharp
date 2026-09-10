@@ -160,6 +160,23 @@ module AcceptanceTests =
         Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
 
     [<Fact>]
+    let ``declarations in inactive conditional branches raise no violations`` () =
+        let result =
+            PackagedTool.run
+                [ fixture "issue-61-conditional-compilation.fs"
+                  "json"
+                  fixture "all-rules.xml"
+                  "--only"
+                  "CamelCaseVariableName" ]
+
+        Assert.Equal(0, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        use document = JsonDocument.Parse(result.StandardOutput)
+        Assert.Equal(0, document.RootElement.GetProperty("errors").GetArrayLength())
+        Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
+
+    [<Fact>]
     let ``packaged executable with no arguments reports exact usage failure`` () =
         let result = PackagedTool.run []
         Assert.Equal(1, result.ExitCode)

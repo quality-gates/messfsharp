@@ -1671,3 +1671,25 @@ and g y =
         Assert.Equal<int list>([ 3; 8 ], startLines (check "CyclomaticComplexity" (Map.ofList [ "maximum", "1" ])))
         Assert.Equal<int list>([ 3; 8 ], startLines (check "NPathComplexity" (Map.ofList [ "maximum", "1" ])))
         Assert.Equal<int list>([ 3; 8 ], startLines (check "ExcessiveMethodLength" (Map.ofList [ "minimum", "4" ])))
+
+    [<Fact>]
+    let ``declarations in inactive conditional compilation branches are excluded`` () =
+        let analyzed =
+            analyzeSource
+                """module TestInactiveBranch
+
+#if NEVER_DEFINED
+let BadName = 1
+#else
+let goodName = 2
+#endif
+
+let alsoGood = 3
+"""
+
+        let named name =
+            analyzed.Declarations |> List.filter (fun d -> d.Name = name) |> List.length
+
+        Assert.Equal(0, named "BadName")
+        Assert.Equal(1, named "goodName")
+        Assert.Equal(1, named "alsoGood")
