@@ -143,8 +143,12 @@ module Rules =
         Map.tryFind (declaration.Name, declaration.Location.StartLine) file.ReferenceCountsByDeclaration
         |> Option.defaultValue (Map.tryFind declaration.Name file.ReferenceCounts |> Option.defaultValue 0)
 
-    let private bodyHas (declaration: Declaration) (text: string) =
-        declaration.Text.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0
+    let private bodyHasReference (file: AnalyzedFile) (declaration: Declaration) (name: string) =
+        file.SyntacticReferences
+        |> List.exists (fun reference ->
+            String.Equals(reference.Name, name, StringComparison.Ordinal)
+            && reference.Location.StartLine >= declaration.BodyStartLine
+            && reference.Location.StartLine <= declaration.BodyEndLine)
 
     let private bodyHasKeyword (file: AnalyzedFile) (declaration: Declaration) (keyword: string) =
         file.Tokens
@@ -1806,7 +1810,7 @@ module Rules =
 
                     if methods.Length > 1 && not (List.isEmpty fields) then
                         let uses (methodDeclaration: Declaration) (field: Declaration) =
-                            bodyHas methodDeclaration field.Name
+                            bodyHasReference file methodDeclaration field.Name
 
                         let mutable groups = 0
                         let mutable unvisited = methods
