@@ -1761,7 +1761,12 @@ module Model =
         let withParameters =
             addParameters source withFields |> addCompilerParameters source syntaxFacts
 
-        let declarations = applyParents withParameters
+        let nonCodeLines = NonCodeText.lines source
+
+        let declarations =
+            withParameters
+            |> List.filter (fun declaration -> not (nonCodeLines.Contains declaration.Location.StartLine))
+            |> applyParents
 
         let referenceCounts =
             declarations

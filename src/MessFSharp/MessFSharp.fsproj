@@ -37,6 +37,7 @@
     <Compile Include="Domain.fs" />
     <Compile Include="Discovery.fs" />
     <Compile Include="Preprocessor.fs" />
+    <Compile Include="NonCodeText.fs" />
     <Compile Include="Scanner.fs" />
     <Compile Include="Parsing.fs" />
     <Compile Include="SyntaxModel.fs" />
