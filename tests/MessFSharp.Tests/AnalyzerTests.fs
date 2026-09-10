@@ -926,6 +926,27 @@ let run status =
         Assert.Contains(violations, fun violation -> violation.Location.StartLine = 7)
 
     [<Fact>]
+    let ``empty catch block reports handlers whose body is only unit after a block comment`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                { Defaults.analysisOptions with
+                    Paths = [ fixture "issue-70-empty-catch-block-comment.fs" ]
+                    Rulesets = [ "design" ]
+                    Format = Json
+                    Only = [ "EmptyCatchBlock" ] }
+
+        Assert.Empty(result.Report.Errors)
+        Assert.Equal(2, result.ExitCode)
+
+        let catchLines =
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = "EmptyCatchBlock")
+            |> List.map (fun violation -> violation.Location.StartLine)
+
+        Assert.Equal<int list>([ 6; 15; 22 ], catchLines)
+
+    [<Fact>]
     let ``interpolated string holes are scanned and referenced bindings are not unused`` () =
         let analyzed =
             analyzeSource
