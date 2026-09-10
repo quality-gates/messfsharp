@@ -444,6 +444,7 @@ module Model =
             let mutable braceDepth = 0
             let mutable angleDepth = 0
             let mutable doneWithParameters = false
+            let mutable afterAccessorMarker = false
 
             let flush () =
                 match currentName with
@@ -505,6 +506,7 @@ module Model =
                         | "->" when isTopLevel () && not inType ->
                             flush ()
                             doneWithParameters <- true
+                        | "with" when isTopLevel () -> afterAccessorMarker <- true
                         | ":" when not (parenthesisDepth = 0 && bracketDepth = 0 && braceDepth = 0) -> inType <- true
                         | ":" ->
                             flush ()
@@ -564,7 +566,13 @@ module Model =
                         | _ when token.Kind = Identifier ->
                             let value = token.Text.Trim('`')
 
-                            if not (ignoredIdentifier value) && value <> "_" then
+                            if
+                                afterAccessorMarker
+                                && (value.Equals("get", StringComparison.OrdinalIgnoreCase)
+                                    || value.Equals("set", StringComparison.OrdinalIgnoreCase))
+                            then
+                                afterAccessorMarker <- false
+                            elif not (ignoredIdentifier value) && value <> "_" then
                                 match currentName with
                                 | Some(prev, _, _) when prev.Length > 0 && Char.IsUpper(prev[0]) -> ()
                                 | Some _ -> flush ()
