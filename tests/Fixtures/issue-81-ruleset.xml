@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ruleset name="issue-81">
+  <rule name="ExcessiveMethodLength">
+    <property name="minimum" value="2" />
+    <property name="ignore-whitespace" value="true" />
+  </rule>
+</ruleset>

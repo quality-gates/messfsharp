@@ -675,22 +675,29 @@ module Rules =
 
         constructions |> Seq.toList
 
-    let private meaningfulLineCount (declaration: Declaration) =
+    let private meaningfulLineCount (nonCodeLines: Set<int>) (declaration: Declaration) =
         declaration.Text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')
-        |> Array.filter (fun line ->
+        |> Array.mapi (fun index line -> declaration.Location.StartLine + index, line)
+        |> Array.filter (fun (lineNumber, line) ->
             let trimmed = line.Trim()
 
             not (String.IsNullOrWhiteSpace trimmed)
-            && not (trimmed.StartsWith("//", StringComparison.Ordinal)))
+            && not (trimmed.StartsWith("//", StringComparison.Ordinal))
+            && not (nonCodeLines.Contains lineNumber))
         |> Array.length
 
-    let private configuredLineCount (selection: RuleSelection) (declaration: Declaration) rawCount =
+    let private configuredLineCount
+        (selection: RuleSelection)
+        (nonCodeLines: Set<int>)
+        (declaration: Declaration)
+        rawCount
+        =
         let ignoreWhitespace =
             propertyText selection "ignore-whitespace" "true"
             |> fun value -> value.Equals("true", StringComparison.OrdinalIgnoreCase)
 
         if ignoreWhitespace then
-            meaningfulLineCount declaration
+            meaningfulLineCount nonCodeLines declaration
         else
             rawCount
 
@@ -788,6 +795,7 @@ module Rules =
           Check =
             fun file selection ->
                 let minimum = property selection "minimum" 100
+                let nonCodeLines = NonCodeText.lines file.Source
 
                 defsFor
                     (fun declaration -> declaration.Kind = Function || declaration.Kind = Member)
@@ -795,7 +803,11 @@ module Rules =
                     selection
                     (fun declaration ->
                         let value =
-                            configuredLineCount selection declaration (metric file.LineCountByDeclaration declaration)
+                            configuredLineCount
+                                selection
+                                nonCodeLines
+                                declaration
+                                (metric file.LineCountByDeclaration declaration)
 
                         if value > minimum then
                             Some(sprintf "Method length %d exceeds maximum %d lines." value minimum)
@@ -810,6 +822,7 @@ module Rules =
           Check =
             fun file selection ->
                 let minimum = property selection "minimum" 1000
+                let nonCodeLines = NonCodeText.lines file.Source
 
                 defsFor
                     (fun declaration ->
@@ -819,7 +832,11 @@ module Rules =
                     selection
                     (fun declaration ->
                         let value =
-                            configuredLineCount selection declaration (metric file.LineCountByDeclaration declaration)
+                            configuredLineCount
+                                selection
+                                nonCodeLines
+                                declaration
+                                (metric file.LineCountByDeclaration declaration)
 
                         if value > minimum then
                             Some(sprintf "Type or module length %d exceeds maximum %d lines." value minimum)
