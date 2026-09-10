@@ -154,6 +154,28 @@ type Service() =
         Assert.Equal(2, result.ExitCode)
 
     [<Fact>]
+    let ``lack of cohesion ignores field names in comments and strings`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                { Defaults.analysisOptions with
+                    Paths = [ fixture "issue-64-lack-of-cohesion-comments.fs" ]
+                    Rulesets = [ "design" ]
+                    Format = Json
+                    Only = [ "LackOfCohesionOfMethods" ] }
+
+        Assert.Empty(result.Report.Errors)
+        Assert.Equal(2, result.ExitCode)
+
+        let violations =
+            result.Report.Violations
+            |> List.filter (fun item -> item.RuleName = "LackOfCohesionOfMethods")
+
+        Assert.Single(violations) |> ignore
+        Assert.Equal(Some "Service", violations.Head.Context.Type)
+        Assert.Equal("Type methods form 2 cohesion groups.", violations.Head.Description)
+
+    [<Fact>]
     let ``component rulesets retain stricter checks omitted by fsharp`` () =
         let unwrap loaded =
             match loaded with
