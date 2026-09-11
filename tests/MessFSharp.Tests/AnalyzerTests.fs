@@ -2544,3 +2544,28 @@ type Service() =
             |> List.find (fun d -> d.Kind = Member && d.Name = "Target")
 
         Assert.False(isChildOf betaService targetMember)
+
+    [<Fact>]
+    let ``reference resolution scales to hundreds of declarations sharing one name`` () =
+        let functionCount = 400
+
+        let text =
+            [ for index in 1..functionCount do
+                  $"let use{index} () =\n    let value = {index}\n    value + 1" ]
+            |> String.concat "\n"
+            |> (+) "module Generated\n"
+
+        let stopwatch = Diagnostics.Stopwatch.StartNew()
+        let analyzed = analyzeSource text
+        stopwatch.Stop()
+
+        let localValues =
+            analyzed.Declarations
+            |> List.filter (fun d -> d.Kind = Value && d.Name = "value")
+
+        Assert.Equal(functionCount, localValues.Length)
+
+        for local in localValues do
+            Assert.Equal(2, analyzed.ReferenceCountsByDeclaration.[(local.Name, local.Location.StartLine)])
+
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds 2.0, $"Analysis took {stopwatch.Elapsed}.")
