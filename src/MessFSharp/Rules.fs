@@ -162,6 +162,9 @@ module Rules =
         file.Declarations
         |> List.filter (fun candidate ->
             candidate.Name = defaultArg declaration.Parent ""
+            && (match declaration.ParentStartLine with
+                | Some line -> candidate.Location.StartLine = line
+                | None -> true)
             && (candidate.Kind = Module || candidate.Kind = Namespace || candidate.Kind = Type)
             && candidate.ScopeStartLine <= declaration.Location.StartLine
             && candidate.ScopeEndLine >= declaration.Location.StartLine)
@@ -936,7 +939,7 @@ module Rules =
                         |> List.filter (fun child ->
                             child.Location.StartLine > declaration.Location.StartLine
                             && child.Location.StartLine <= declaration.ScopeEndLine
-                            && child.Parent = Some declaration.Name
+                            && isChildOf declaration child
                             && child.IsPublic
                             && child.Kind <> Parameter)
                         |> List.length
@@ -967,7 +970,7 @@ module Rules =
                 |> List.choose (fun declaration ->
                     let count =
                         file.Declarations
-                        |> List.filter (fun child -> child.Kind = Field && child.Parent = Some declaration.Name)
+                        |> List.filter (fun child -> child.Kind = Field && isChildOf declaration child)
                         |> List.length
 
                     if count > maximum then
@@ -998,7 +1001,7 @@ module Rules =
                         file.Declarations
                         |> List.filter (fun child ->
                             (child.Kind = Member || child.Kind = Function || child.Kind = Constructor)
-                            && child.Parent = Some declaration.Name)
+                            && isChildOf declaration child)
                         |> List.length
 
                     if count > maximum then
@@ -1029,7 +1032,7 @@ module Rules =
                         file.Declarations
                         |> List.filter (fun child ->
                             (child.Kind = Member || child.Kind = Function || child.Kind = Constructor)
-                            && child.Parent = Some declaration.Name
+                            && isChildOf declaration child
                             && child.IsPublic)
                         |> List.length
 
@@ -1062,8 +1065,7 @@ module Rules =
                     let value =
                         file.Declarations
                         |> List.filter (fun child ->
-                            child.Parent = Some declaration.Name
-                            && (child.Kind = Member || child.Kind = Function))
+                            (child.Kind = Member || child.Kind = Function) && isChildOf declaration child)
                         |> List.sumBy (metric file.ComplexityByDeclaration)
 
                     if value > maximum then
@@ -1373,6 +1375,9 @@ module Rules =
                             || (file.Declarations
                                 |> List.filter (fun candidate ->
                                     candidate.Name = defaultArg declaration.Parent ""
+                                    && (match declaration.ParentStartLine with
+                                        | Some line -> candidate.Location.StartLine = line
+                                        | None -> true)
                                     && (candidate.Kind = Function || candidate.Kind = Member)
                                     && candidate.ScopeStartLine <= declaration.Location.StartLine
                                     && candidate.ScopeEndLine >= declaration.Location.StartLine)
@@ -1797,7 +1802,7 @@ module Rules =
                     let ownNames =
                         file.Declarations
                         |> List.filter (fun child ->
-                            child.Parent = Some declaration.Name
+                            isChildOf declaration child
                             || (child.Location.StartLine >= declaration.Location.StartLine
                                 && child.Location.StartLine <= declaration.ScopeEndLine
                                 && child.Kind <> Type))
@@ -1839,7 +1844,7 @@ module Rules =
             fun file selection ->
                 let reportImmutable =
                     propertyText selection "report-immutable" "false"
-                    |> fun value -> value.Equals("true", StringComparison.OrdinalIgnoreCase)
+                    |> fun text -> text.Equals("true", StringComparison.OrdinalIgnoreCase)
 
                 defsFor
                     (fun declaration ->
@@ -1877,12 +1882,12 @@ module Rules =
                         file.Declarations
                         |> List.filter (fun declaration ->
                             (declaration.Kind = Member || declaration.Kind = Function)
-                            && declaration.Parent = Some typeDeclaration.Name)
+                            && isChildOf typeDeclaration declaration)
 
                     let fields: Declaration list =
                         file.Declarations
                         |> List.filter (fun declaration ->
-                            declaration.Kind = Field && declaration.Parent = Some typeDeclaration.Name)
+                            declaration.Kind = Field && isChildOf typeDeclaration declaration)
 
                     if methods.Length > 1 && not (List.isEmpty fields) then
                         let uses (methodDeclaration: Declaration) (field: Declaration) =

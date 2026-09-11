@@ -500,3 +500,20 @@ module AcceptanceTests =
         use document = JsonDocument.Parse(result.StandardOutput)
         Assert.Equal(0, document.RootElement.GetProperty("errors").GetArrayLength())
         Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
+
+    [<Fact>]
+    let ``types sharing identical names across scopes do not inflate member or field counts`` () =
+        let result =
+            PackagedTool.run
+                [ fixture "issue-92-duplicate-names.fs"
+                  "json"
+                  fixture "issue-92-ruleset.xml"
+                  "--only"
+                  "TooManyFields,TooManyMethods,TooManyPublicMethods,ExcessiveClassComplexity" ]
+
+        Assert.Equal(0, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        use document = JsonDocument.Parse(result.StandardOutput)
+        Assert.Equal(0, document.RootElement.GetProperty("errors").GetArrayLength())
+        Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())

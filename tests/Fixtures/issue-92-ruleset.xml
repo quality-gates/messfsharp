@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ruleset name="issue-92">
+  <rule name="TooManyFields">
+    <property name="maxfields" value="2" />
+  </rule>
+  <rule name="TooManyMethods">
+    <property name="maxmethods" value="3" />
+  </rule>
+  <rule name="TooManyPublicMethods">
+    <property name="maxmethods" value="3" />
+  </rule>
+  <rule name="ExcessiveClassComplexity">
+    <property name="maximum" value="2" />
+  </rule>
+</ruleset>
