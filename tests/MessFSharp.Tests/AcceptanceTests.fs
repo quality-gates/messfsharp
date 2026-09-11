@@ -517,3 +517,50 @@ module AcceptanceTests =
         use document = JsonDocument.Parse(result.StandardOutput)
         Assert.Equal(0, document.RootElement.GetProperty("errors").GetArrayLength())
         Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
+
+    [<Fact>]
+    let ``development markers match on word boundaries rather than raw substrings`` () =
+        let source = fixture "issue-96-marker-boundaries.fs"
+
+        let result =
+            PackagedTool.run [ source; "text"; "design"; "--only"; "DevelopmentCodeFragment" ]
+
+        Assert.Equal(2, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        Assert.Equal(
+            String.concat
+                newline
+                [ source
+                  + ":3:DevelopmentCodeFragment: Development-only marker found in production source."
+                  source
+                  + ":4:DevelopmentCodeFragment: Development-only marker found in production source."
+                  source
+                  + ":5:DevelopmentCodeFragment: Development-only marker found in production source."
+                  source
+                  + ":6:DevelopmentCodeFragment: Development-only marker found in production source." ]
+            + newline,
+            result.StandardOutput
+        )
+
+    [<Fact>]
+    let ``custom unwanted functions match with the same word boundary awareness`` () =
+        let result =
+            PackagedTool.run
+                [ fixture "issue-96-marker-boundaries.fs"
+                  "text"
+                  fixture "issue-96-ruleset.xml" ]
+
+        Assert.Equal(2, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        Assert.Equal(
+            String.concat
+                newline
+                [ fixture "issue-96-marker-boundaries.fs"
+                  + ":6:DevelopmentCodeFragment: Development-only marker found in production source."
+                  fixture "issue-96-marker-boundaries.fs"
+                  + ":14:DevelopmentCodeFragment: Development-only marker found in production source." ]
+            + newline,
+            result.StandardOutput
+        )

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ruleset name="issue-96">
+  <rule name="DevelopmentCodeFragment">
+    <property name="unwanted-functions" value="traceDump,Debug.Assert" />
+  </rule>
+</ruleset>
