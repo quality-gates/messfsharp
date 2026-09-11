@@ -106,6 +106,7 @@ module Domain =
           Location: SourceLocation
           Parent: string option
           ParentKind: DeclarationKind option
+          ParentStartLine: int option
           Accessibility: string
           IsMutable: bool
           IsStatic: bool
@@ -129,6 +130,14 @@ module Domain =
           BodyStartLine: int
           BodyEndLine: int
           Text: string }
+
+    let isChildOf (parent: Declaration) (child: Declaration) =
+        child.Parent = Some parent.Name
+        && (match child.ParentStartLine with
+            | Some line -> line = parent.Location.StartLine
+            | None -> true)
+        && child.Location.StartLine >= parent.Location.StartLine
+        && child.Location.StartLine <= parent.ScopeEndLine
 
     type AnalyzedFile =
         { Source: SourceFile

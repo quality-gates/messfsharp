@@ -593,6 +593,7 @@ module Model =
         startColumn
         parent
         parentKind
+        parentStartLine
         (accessibility: string)
         isMutable
         isStatic
@@ -616,6 +617,7 @@ module Model =
           Location = sourceLocation source line bodyEnd startColumn
           Parent = parent
           ParentKind = parentKind
+          ParentStartLine = parentStartLine
           Accessibility = accessibility
           IsMutable = isMutable
           IsStatic = isStatic
@@ -692,6 +694,9 @@ module Model =
             |> List.filter (fun candidate ->
                 candidate.Kind = Type
                 && candidate.Name = defaultArg declaration.Parent ""
+                && (match declaration.ParentStartLine with
+                    | Some line -> candidate.Location.StartLine = line
+                    | None -> true)
                 && candidate.ScopeStartLine <= declaration.Location.StartLine
                 && candidate.ScopeEndLine >= declaration.Location.StartLine)
             |> List.sortByDescending (fun candidate -> candidate.ScopeStartLine)
@@ -1027,6 +1032,7 @@ module Model =
                         (indent + 1)
                         None
                         None
+                        None
                         accessibility
                         isMutable
                         isStatic
@@ -1146,6 +1152,7 @@ module Model =
                                 (indent + 1)
                                 (parent |> Option.map (fun item -> item.Name))
                                 (parent |> Option.map (fun item -> item.Kind))
+                                (parent |> Option.map (fun item -> item.Location.StartLine))
                                 ""
                                 false
                                 false
@@ -1268,6 +1275,7 @@ module Model =
                                             (indent + 1)
                                             (parent |> Option.map (fun item -> item.Name))
                                             (parent |> Option.map (fun item -> item.Kind))
+                                            (parent |> Option.map (fun item -> item.Location.StartLine))
                                             accessibility
                                             isMutable
                                             false
@@ -1313,6 +1321,7 @@ module Model =
                                                 (indent + 1)
                                                 (parent |> Option.map (fun item -> item.Name))
                                                 (parent |> Option.map (fun item -> item.Kind))
+                                                (parent |> Option.map (fun item -> item.Location.StartLine))
                                                 ""
                                                 false
                                                 false
@@ -1354,7 +1363,19 @@ module Model =
             for lineNumber in lineNumbers do
                 let line = lineAt source.Lines lineNumber
 
-                if indentation line <= typeIndent + 4 then
+                let isDirectTypeLine =
+                    if lineNumber = typeDeclaration.Location.StartLine then
+                        true
+                    else
+                        declarations
+                        |> List.exists (fun d ->
+                            d.Kind = Type
+                            && d.Location.StartLine > typeDeclaration.Location.StartLine
+                            && d.Location.StartLine <= lineNumber
+                            && d.ScopeEndLine >= lineNumber)
+                        |> not
+
+                if isDirectTypeLine && indentation line <= typeIndent + 4 then
                     if lineNumber = typeDeclaration.Location.StartLine then
                         let firstCaseMatch = firstUnionCasePattern.Match(line)
 
@@ -1370,6 +1391,7 @@ module Model =
                                     (firstCaseMatch.Groups[1].Index + 1)
                                     (Some typeDeclaration.Name)
                                     (Some Type)
+                                    (Some typeDeclaration.Location.StartLine)
                                     ""
                                     false
                                     false
@@ -1399,6 +1421,7 @@ module Model =
                                 (caseMatch.Groups[1].Index + 1)
                                 (Some typeDeclaration.Name)
                                 (Some Type)
+                                (Some typeDeclaration.Location.StartLine)
                                 ""
                                 false
                                 false
@@ -1440,8 +1463,20 @@ module Model =
             for lineNumber in lineNumbers do
                 let line = lineAt source.Lines lineNumber
 
+                let isDirectTypeLine =
+                    if lineNumber = typeDeclaration.Location.StartLine then
+                        true
+                    else
+                        declarations
+                        |> List.exists (fun d ->
+                            d.Kind = Type
+                            && d.Location.StartLine > typeDeclaration.Location.StartLine
+                            && d.Location.StartLine <= lineNumber
+                            && d.ScopeEndLine >= lineNumber)
+                        |> not
+
                 let fieldMatches =
-                    if enclosingBody declarations lineNumber |> Option.isSome then
+                    if not isDirectTypeLine || enclosingBody declarations lineNumber |> Option.isSome then
                         []
                     elif typeDeclaration.IsRecord then
                         recordFieldPattern.Matches(line) |> Seq.cast<Match> |> Seq.toList
@@ -1474,6 +1509,7 @@ module Model =
                                 (indentation line + 1)
                                 (Some typeDeclaration.Name)
                                 (Some Type)
+                                (Some typeDeclaration.Location.StartLine)
                                 accessibility
                                 isMutable
                                 isStatic
@@ -1541,6 +1577,7 @@ module Model =
                         startColumn
                         (Some typeDeclaration.Name)
                         (Some Type)
+                        (Some typeDeclaration.Location.StartLine)
                         ""
                         false
                         false
@@ -1591,6 +1628,7 @@ module Model =
                             parameter.Column
                             (Some declaration.Name)
                             (Some declaration.Kind)
+                            (Some declaration.Location.StartLine)
                             ""
                             false
                             false
@@ -1637,6 +1675,7 @@ module Model =
                     { declaration with
                         Parent = Some parent.Name
                         ParentKind = Some parent.Kind
+                        ParentStartLine = Some parent.Location.StartLine
                         IsModuleLevel = declaration.IsModuleLevel })
 
     let private applyCompilerTypeShapes (facts: SyntaxModel.Facts) (declarations: Declaration list) =
@@ -1729,6 +1768,7 @@ module Model =
                         fact.Location.StartColumn
                         (parent |> Option.map (fun item -> item.Name))
                         (parent |> Option.map (fun item -> item.Kind))
+                        (parent |> Option.map (fun item -> item.Location.StartLine))
                         ""
                         fact.IsMutable
                         false
@@ -1782,6 +1822,7 @@ module Model =
                                 parameterLocation.StartColumn
                                 (Some declaration.Name)
                                 (Some declaration.Kind)
+                                (Some declaration.Location.StartLine)
                                 ""
                                 false
                                 false

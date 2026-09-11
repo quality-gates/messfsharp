@@ -2288,3 +2288,131 @@ let alsoGood = 3
         Assert.Equal(0, named "BadName")
         Assert.Equal(1, named "goodName")
         Assert.Equal(1, named "alsoGood")
+
+    [<Fact>]
+    let ``child declarations track enclosing parent start line`` () =
+        let analyzed =
+            analyzeSource
+                """namespace Alpha
+type Config =
+    val mutable A: int
+
+type Service() =
+    member _.Run(flag: bool) = flag
+
+namespace Beta
+type Config =
+    val mutable B: int
+"""
+
+        let alphaConfig =
+            analyzed.Declarations
+            |> List.find (fun d -> d.Kind = Type && d.Name = "Config" && d.Location.StartLine = 2)
+
+        let betaConfig =
+            analyzed.Declarations
+            |> List.find (fun d -> d.Kind = Type && d.Name = "Config" && d.Location.StartLine = 9)
+
+        let fieldA =
+            analyzed.Declarations |> List.find (fun d -> d.Kind = Field && d.Name = "A")
+
+        let fieldB =
+            analyzed.Declarations |> List.find (fun d -> d.Kind = Field && d.Name = "B")
+
+        Assert.Equal(Some 2, fieldA.ParentStartLine)
+        Assert.Equal(Some 9, fieldB.ParentStartLine)
+        Assert.True(isChildOf alphaConfig fieldA)
+        Assert.False(isChildOf alphaConfig fieldB)
+        Assert.True(isChildOf betaConfig fieldB)
+        Assert.False(isChildOf betaConfig fieldA)
+
+    [<Fact>]
+    let ``identically named types in different scopes do not cross-inflate fields or methods`` () =
+        let analyzed =
+            analyzeSource
+                """namespace Alpha
+type Config =
+    val mutable A: int
+    val mutable B: int
+
+type Service() =
+    member _.One() = 1
+    member _.Two() = 2
+
+namespace Beta
+type Config =
+    val mutable C: int
+    val mutable D: int
+
+type Service() =
+    member _.Three() = 3
+    member _.Four() = 4
+"""
+
+        let check ruleName props =
+            let selection =
+                { Name = ruleName
+                  RulesetName = "test"
+                  Priority = 3
+                  Properties = props }
+
+            let rule = Rules.all |> List.find (fun item -> item.Name = ruleName)
+            rule.Check analyzed selection
+
+        Assert.Empty(check "TooManyFields" (Map.ofList [ "maxfields", "2" ]))
+        Assert.Empty(check "TooManyMethods" (Map.ofList [ "maxmethods", "3" ]))
+        Assert.Empty(check "TooManyPublicMethods" (Map.ofList [ "maxmethods", "3" ]))
+        Assert.Empty(check "ExcessiveClassComplexity" (Map.ofList [ "maximum", "2" ]))
+
+    [<Fact>]
+    let ``lack of cohesion of methods evaluates cohesion groups strictly within declaration scope`` () =
+        let analyzed =
+            analyzeSource
+                """namespace Alpha
+
+type Service() =
+    let sharedAlpha = 0
+    member _.First() = sharedAlpha
+    member _.Second() = sharedAlpha
+
+namespace Beta
+
+type Service() =
+    let sharedBeta = 0
+    member _.Third() = sharedBeta
+    member _.Fourth() = sharedBeta
+"""
+
+        let selection =
+            { Name = "LackOfCohesionOfMethods"
+              RulesetName = "test"
+              Priority = 3
+              Properties = Map.ofList [ "minimum", "1" ] }
+
+        let rule =
+            Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
+
+        Assert.Empty(rule.Check analyzed selection)
+
+    [<Fact>]
+    let ``coupling between objects calculates own names strictly within target declaration scope`` () =
+        let analyzed =
+            analyzeSource
+                """namespace Alpha
+type Service() =
+    member _.Target() = 1
+
+namespace Beta
+type Service() =
+    member _.Run() = Target.Execute()
+"""
+
+        let betaService =
+            analyzed.Declarations
+            |> List.find (fun d -> d.Kind = Type && d.Name = "Service" && d.Location.StartLine = 6)
+
+        let targetMember =
+            analyzed.Declarations
+            |> List.find (fun d -> d.Kind = Member && d.Name = "Target")
+
+        Assert.False(isChildOf betaService targetMember)
