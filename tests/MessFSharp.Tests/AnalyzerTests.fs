@@ -1938,6 +1938,92 @@ open System.Diagnostics.CodeAnalysis
             File.Delete(tempFile)
 
     [<Fact>]
+    let ``suppress message with intervening comment or doc comment suppresses rule violation`` () =
+        let source =
+            """module TestCommentSuppression
+open System.Diagnostics.CodeAnalysis
+
+[<SuppressMessage("messfsharp", "ShortVariable")>]
+// explanatory comment
+let v = 1
+
+[<SuppressMessage("messfsharp", "ShortVariable")>]
+/// XML doc comment
+let w = 2
+"""
+
+        let tempFile =
+            Path.Combine(Path.GetTempPath(), $"messfsharp-suppress-{Guid.NewGuid()}.fs")
+
+        try
+            File.WriteAllText(tempFile, source)
+            let result = Engine.run "0.1.0" (options [ tempFile ] [ "naming" ] Json)
+            Assert.Empty(result.Report.Errors)
+            Assert.Empty(result.Report.Violations)
+        finally
+            File.Delete(tempFile)
+
+    [<Fact>]
+    let ``non-attribute non-comment source lines terminate attribute scan and prevent attribute leakage`` () =
+        let source =
+            """module TestAttributeLeakage
+open System.Diagnostics.CodeAnalysis
+
+[<SuppressMessage("messfsharp", "ShortVariable")>]
+let allowed = 1
+
+// comment before unsuppressed variable
+let u = 2
+"""
+
+        let tempFile =
+            Path.Combine(Path.GetTempPath(), $"messfsharp-suppress-{Guid.NewGuid()}.fs")
+
+        try
+            File.WriteAllText(tempFile, source)
+            let result = Engine.run "0.1.0" (options [ tempFile ] [ "naming" ] Json)
+            Assert.Empty(result.Report.Errors)
+            let violation = Assert.Single(result.Report.Violations)
+            Assert.Equal("ShortVariable", violation.RuleName)
+            Assert.Contains("'u'", violation.Description)
+        finally
+            File.Delete(tempFile)
+
+    [<Fact>]
+    let ``preceding attributes with intervening comments are correctly parsed on declarations`` () =
+        let analyzed =
+            analyzeSource
+                """module TestModelAttributesWithComments
+open System.Diagnostics.CodeAnalysis
+
+[<SuppressMessage("messfsharp", "ShortVariable")>]
+// intervening comment
+[<Literal>]
+/// doc comment
+let v = 1
+"""
+
+        let v = analyzed.Declarations |> List.find (fun d -> d.Name = "v")
+
+        Assert.Equal<string>(Set.ofList [ "ShortVariable" ], v.SuppressedRules)
+        Assert.True(v.IsLiteral)
+
+    [<Fact>]
+    let ``comments containing attribute syntax do not produce false positive attributes or suppressions`` () =
+        let analyzed =
+            analyzeSource
+                """module TestCommentSyntaxNotAttributes
+// [<Literal>]
+// [<SuppressMessage("messfsharp", "ShortVariable")>]
+let v = 1
+"""
+
+        let v = analyzed.Declarations |> List.find (fun d -> d.Name = "v")
+
+        Assert.Empty(v.SuppressedRules)
+        Assert.False(v.IsLiteral)
+
+    [<Fact>]
     let ``attributed interface declarations resolve InterfaceType and IsInterface true`` () =
         let source =
             """module TestInterface

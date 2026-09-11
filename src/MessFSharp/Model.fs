@@ -115,11 +115,13 @@ module Model =
         while index >= 0 && keepGoing do
             let text = lines[index].Trim()
 
-            if
-                String.IsNullOrWhiteSpace text
-                || text.StartsWith("[<", StringComparison.Ordinal)
-            then
+            if text.StartsWith("[<", StringComparison.Ordinal) then
                 collected.Add(lines[index])
+                index <- index - 1
+            elif
+                String.IsNullOrWhiteSpace text
+                || text.StartsWith("//", StringComparison.Ordinal)
+            then
                 index <- index - 1
             else
                 keepGoing <- false
