@@ -685,11 +685,6 @@ module Model =
         | Some body -> Some body
         | None -> nearestParent declarations line
 
-    let private tokenCount (tokens: SyntaxToken array) name startLine endLine =
-        tokens
-        |> Array.filter (fun token -> token.Text = name && token.Line >= startLine && token.Line <= endLine)
-        |> Array.length
-
     let private referenceScope (declarations: Declaration list) (declaration: Declaration) sourceLineCount =
         if declaration.Kind = Field then
             declarations
@@ -723,53 +718,57 @@ module Model =
         else
             1, sourceLineCount
 
-    let private referenceCountFor
+    // Calculate each reference scope one time and resolve each token one time.
+    // Recalculation for each token makes analysis time grow with the cube of the declaration count.
+    let private referenceCountsByDeclaration
         (tokens: SyntaxToken array)
         (declarations: Declaration list)
-        (target: Declaration)
         sourceLineCount
         =
-        let sameDeclaration (candidate: Declaration) =
-            candidate.Name = target.Name
-            && candidate.Kind = target.Kind
-            && candidate.Location.StartLine = target.Location.StartLine
+        let identity (declaration: Declaration) =
+            declaration.Name, declaration.Kind, declaration.Location.StartLine
 
-        let resolvesAt (token: SyntaxToken) =
+        let candidatesByName =
             declarations
-            |> List.filter (fun (candidate: Declaration) ->
-                candidate.Name = target.Name
-                && candidate.Location.StartLine <= token.Line
-                && not (
-                    candidate.Kind = Value
-                    && not candidate.IsFunction
-                    && token.Line <= candidate.BodyEndLine
-                )
-                && (let startLine, endLine = referenceScope declarations candidate sourceLineCount
-                    token.Line >= startLine && token.Line <= endLine))
-            |> List.sortWith (fun (left: Declaration) (right: Declaration) ->
-                let leftStart, _ = referenceScope declarations left sourceLineCount
-                let rightStart, _ = referenceScope declarations right sourceLineCount
+            |> List.map (fun declaration -> declaration, referenceScope declarations declaration sourceLineCount)
+            |> List.groupBy (fun (declaration, _) -> declaration.Name)
+            |> Map.ofList
 
-                if leftStart <> rightStart then
-                    compare rightStart leftStart
-                else
-                    compare right.Location.StartLine left.Location.StartLine)
-            |> List.tryHead
-            |> Option.exists sameDeclaration
+        let visibleAt (token: SyntaxToken) (candidate: Declaration, (startLine, endLine)) =
+            candidate.Location.StartLine <= token.Line
+            && not (candidate.Kind = Value && not candidate.IsFunction && token.Line <= candidate.BodyEndLine)
+            && token.Line >= startLine
+            && token.Line <= endLine
 
-        let declarationReference =
-            if target.Kind = Value && not target.IsFunction then
+        let innermostFirst (left: Declaration, (leftStart, _)) (right: Declaration, (rightStart, _)) =
+            if leftStart <> rightStart then
+                compare rightStart leftStart
+            else
+                compare right.Location.StartLine left.Location.StartLine
+
+        let resolve (token: SyntaxToken) =
+            Map.tryFind token.Text candidatesByName
+            |> Option.bind (fun candidates ->
+                candidates
+                |> List.filter (visibleAt token)
+                |> List.sortWith innermostFirst
+                |> List.tryHead
+                |> Option.map (fst >> identity))
+
+        let resolvedCounts = tokens |> Array.choose resolve |> Array.countBy id |> Map.ofArray
+
+        let declarationReference (declaration: Declaration) =
+            if declaration.Kind = Value && not declaration.IsFunction then
                 1
             else
                 0
 
-        declarationReference
-        + (tokens
-           |> Array.sumBy (fun (token: SyntaxToken) ->
-               if token.Text = target.Name && resolvesAt token then
-                   1
-               else
-                   0))
+        declarations
+        |> List.map (fun declaration ->
+            (declaration.Name, declaration.Location.StartLine),
+            declarationReference declaration
+            + (Map.tryFind (identity declaration) resolvedCounts |> Option.defaultValue 0))
+        |> Map.ofList
 
     let private complexity (tokens: SyntaxToken array) startLine endLine =
         let within (token: SyntaxToken) =
@@ -1883,17 +1882,16 @@ module Model =
             |> List.filter (fun declaration -> not (nonCodeLines.Contains declaration.Location.StartLine))
             |> applyParents
 
+        let tokenCounts = tokens |> Array.countBy (fun token -> token.Text) |> Map.ofArray
+
         let referenceCounts =
             declarations
-            |> List.map (fun declaration -> declaration.Name, tokenCount tokens declaration.Name 1 source.Lines.Length)
+            |> List.map (fun declaration ->
+                declaration.Name, Map.tryFind declaration.Name tokenCounts |> Option.defaultValue 0)
             |> Map.ofList
 
         let referenceCountsByDeclaration =
-            declarations
-            |> List.map (fun declaration ->
-                (declaration.Name, declaration.Location.StartLine),
-                referenceCountFor tokens declarations declaration source.Lines.Length)
-            |> Map.ofList
+            referenceCountsByDeclaration tokens declarations source.Lines.Length
 
         let mutatedNames =
             tokens
