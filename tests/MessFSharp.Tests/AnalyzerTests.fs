@@ -2560,7 +2560,8 @@ type Service() =
         stopwatch.Stop()
 
         let localValues =
-            analyzed.Declarations |> List.filter (fun d -> d.Kind = Value && d.Name = "value")
+            analyzed.Declarations
+            |> List.filter (fun d -> d.Kind = Value && d.Name = "value")
 
         Assert.Equal(functionCount, localValues.Length)
 

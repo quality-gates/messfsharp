@@ -736,7 +736,11 @@ module Model =
 
         let visibleAt (token: SyntaxToken) (candidate: Declaration, (startLine, endLine)) =
             candidate.Location.StartLine <= token.Line
-            && not (candidate.Kind = Value && not candidate.IsFunction && token.Line <= candidate.BodyEndLine)
+            && not (
+                candidate.Kind = Value
+                && not candidate.IsFunction
+                && token.Line <= candidate.BodyEndLine
+            )
             && token.Line >= startLine
             && token.Line <= endLine
 
@@ -755,7 +759,8 @@ module Model =
                 |> List.tryHead
                 |> Option.map (fst >> identity))
 
-        let resolvedCounts = tokens |> Array.choose resolve |> Array.countBy id |> Map.ofArray
+        let resolvedCounts =
+            tokens |> Array.choose resolve |> Array.countBy id |> Map.ofArray
 
         let declarationReference (declaration: Declaration) =
             if declaration.Kind = Value && not declaration.IsFunction then
