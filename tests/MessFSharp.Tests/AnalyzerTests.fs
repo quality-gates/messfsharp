@@ -641,6 +641,7 @@ type Service() =
                         IgnoreTests = true }
 
             Assert.Empty(errors)
+
             Assert.Equal<string list>(
                 [ Path.GetFullPath(app)
                   Path.GetFullPath(appTests)
