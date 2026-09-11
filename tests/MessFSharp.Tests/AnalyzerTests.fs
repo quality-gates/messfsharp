@@ -2296,8 +2296,7 @@ let matchingFunction value =
         let complexity name =
             let declaration =
                 analyzed.Declarations
-                |> List.find (fun declaration ->
-                    declaration.Kind = Function && declaration.Name = name)
+                |> List.find (fun declaration -> declaration.Kind = Function && declaration.Name = name)
 
             Map.tryFind (declaration.Name, declaration.Location.StartLine) analyzed.ComplexityByDeclaration
             |> Option.defaultValue 0

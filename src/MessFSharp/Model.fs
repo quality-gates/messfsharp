@@ -786,8 +786,7 @@ module Model =
             |> Array.sumBy (fun token -> if token.Text = "match" then 1 else 0)
 
         let isLiteralDelimiter index =
-            (index > 0
-             && (tokens[index - 1].Text = "[" || tokens[index - 1].Text = "{"))
+            (index > 0 && (tokens[index - 1].Text = "[" || tokens[index - 1].Text = "{"))
             || (index + 1 < tokens.Length
                 && (tokens[index + 1].Text = "]" || tokens[index + 1].Text = "}"))
 
