@@ -785,10 +785,20 @@ module Model =
             |> Array.filter within
             |> Array.sumBy (fun token -> if token.Text = "match" then 1 else 0)
 
+        let isLiteralDelimiter index =
+            (index > 0
+             && (tokens[index - 1].Text = "[" || tokens[index - 1].Text = "{"))
+            || (index + 1 < tokens.Length
+                && (tokens[index + 1].Text = "]" || tokens[index + 1].Text = "}"))
+
         let caseBranches =
             tokens
-            |> Array.filter within
-            |> Array.sumBy (fun token -> if token.Text = "|" then 1 else 0)
+            |> Array.mapi (fun index token -> index, token)
+            |> Array.sumBy (fun (index, token) ->
+                if within token && token.Text = "|" && not (isLiteralDelimiter index) then
+                    1
+                else
+                    0)
 
         let shortCircuitBranches =
             tokens
