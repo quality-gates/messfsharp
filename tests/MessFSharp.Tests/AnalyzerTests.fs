@@ -2268,6 +2268,48 @@ and g y =
         Assert.Equal<int list>([ 3; 8 ], startLines (check "ExcessiveMethodLength" (Map.ofList [ "minimum", "4" ])))
 
     [<Fact>]
+    let ``cyclomatic complexity ignores literal delimiters but counts pattern cases`` () =
+        let analyzed =
+            analyzeSource
+                """module Literals
+
+let arrays () =
+    [| 1; 2 |]
+
+let anonymousRecord () =
+    {| Value = 1 |}
+
+let matching value =
+    match value with
+    | Some result -> result
+    | None -> 0
+
+let matchingFunction value =
+    let convert =
+        function
+        | Some result -> result
+        | None -> 0
+
+    convert value
+"""
+
+        let complexity name =
+            let declaration =
+                analyzed.Declarations
+                |> List.find (fun declaration -> declaration.Kind = Function && declaration.Name = name)
+
+            Map.tryFind (declaration.Name, declaration.Location.StartLine) analyzed.ComplexityByDeclaration
+            |> Option.defaultValue 0
+
+        let actual =
+            [ complexity "arrays"
+              complexity "anonymousRecord"
+              complexity "matching"
+              complexity "matchingFunction" ]
+
+        Assert.Equal<int list>([ 1; 1; 3; 3 ], actual)
+
+    [<Fact>]
     let ``declarations in inactive conditional compilation branches are excluded`` () =
         let analyzed =
             analyzeSource
