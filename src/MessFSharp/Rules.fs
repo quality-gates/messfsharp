@@ -1643,7 +1643,13 @@ module Rules =
 
                 let patterns =
                     unwanted.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                    |> Array.map (fun item -> Regex("\\b" + Regex.Escape(item.Trim()) + "\\b", RegexOptions.Compiled ||| RegexOptions.CultureInvariant ||| RegexOptions.IgnoreCase))
+                    |> Array.map (fun item ->
+                        Regex(
+                            "\\b" + Regex.Escape(item.Trim()) + "\\b",
+                            RegexOptions.Compiled
+                            ||| RegexOptions.CultureInvariant
+                            ||| RegexOptions.IgnoreCase
+                        ))
 
                 file.Source.Lines
                 |> Array.mapi (fun index line -> index + 1, line)

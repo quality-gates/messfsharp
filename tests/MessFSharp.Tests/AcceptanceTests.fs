@@ -529,12 +529,16 @@ module AcceptanceTests =
         Assert.Equal("", result.StandardError)
 
         Assert.Equal(
-            String.concat newline [
-                source + ":3:DevelopmentCodeFragment: Development-only marker found in production source."
-                source + ":4:DevelopmentCodeFragment: Development-only marker found in production source."
-                source + ":5:DevelopmentCodeFragment: Development-only marker found in production source."
-                source + ":6:DevelopmentCodeFragment: Development-only marker found in production source."
-            ]
+            String.concat
+                newline
+                [ source
+                  + ":3:DevelopmentCodeFragment: Development-only marker found in production source."
+                  source
+                  + ":4:DevelopmentCodeFragment: Development-only marker found in production source."
+                  source
+                  + ":5:DevelopmentCodeFragment: Development-only marker found in production source."
+                  source
+                  + ":6:DevelopmentCodeFragment: Development-only marker found in production source." ]
             + newline,
             result.StandardOutput
         )
@@ -551,12 +555,12 @@ module AcceptanceTests =
         Assert.Equal("", result.StandardError)
 
         Assert.Equal(
-            String.concat newline [
-                fixture "issue-96-marker-boundaries.fs"
-                + ":6:DevelopmentCodeFragment: Development-only marker found in production source."
-                fixture "issue-96-marker-boundaries.fs"
-                + ":14:DevelopmentCodeFragment: Development-only marker found in production source."
-            ]
+            String.concat
+                newline
+                [ fixture "issue-96-marker-boundaries.fs"
+                  + ":6:DevelopmentCodeFragment: Development-only marker found in production source."
+                  fixture "issue-96-marker-boundaries.fs"
+                  + ":14:DevelopmentCodeFragment: Development-only marker found in production source." ]
             + newline,
             result.StandardOutput
         )
