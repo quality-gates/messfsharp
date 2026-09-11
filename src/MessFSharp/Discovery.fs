@@ -14,7 +14,7 @@ module Discovery =
         alwaysExcludedDirectoryNames.Contains(directory.Name.ToLowerInvariant())
 
     let private isIgnoredTestDirectoryName (part: string) =
-        part.EndsWith("Tests", StringComparison.OrdinalIgnoreCase)
+        String.Equals(part, "Tests", StringComparison.OrdinalIgnoreCase)
         || part.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
 
     let private isIgnoredTestPath (root: string) (path: string) =
@@ -22,7 +22,7 @@ module Discovery =
 
         let fileIgnored =
             [ "Test.fs"; "Tests.fs"; "Test.fsx"; "Tests.fsx" ]
-            |> List.exists (fun suffix -> fileName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            |> List.exists (fun name -> String.Equals(fileName, name, StringComparison.OrdinalIgnoreCase))
 
         let relativePath = Path.GetRelativePath(root, path)
 

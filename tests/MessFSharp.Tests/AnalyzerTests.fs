@@ -597,7 +597,7 @@ type Service() =
             workspace.Delete(true)
 
     [<Fact>]
-    let ``ignore-tests still skips nested test directories and test-named files`` () =
+    let ``ignore-tests skips exact test names without skipping similarly named production paths`` () =
         let workspace = Directory.CreateTempSubdirectory("messfsharp-ignore-tests-")
 
         try
@@ -607,17 +607,33 @@ type Service() =
 
             let unitTests = Directory.CreateDirectory(Path.Combine(src.FullName, "UnitTests"))
 
-            File.WriteAllText(Path.Combine(unitTests.FullName, "Inside.fs"), "module Inside")
+            let unitTestsFile = Path.Combine(unitTests.FullName, "Inside.fs")
+            File.WriteAllText(unitTestsFile, "module Inside")
+
+            let contests = Directory.CreateDirectory(Path.Combine(src.FullName, "Contests"))
+
+            let contestsFile = Path.Combine(contests.FullName, "Inside.fs")
+            File.WriteAllText(contestsFile, "module Contests")
 
             let sampleTests =
                 Directory.CreateDirectory(Path.Combine(src.FullName, "Sample.Tests"))
 
             File.WriteAllText(Path.Combine(sampleTests.FullName, "Inside.fs"), "module SampleInside")
 
-            File.WriteAllText(Path.Combine(src.FullName, "AppTests.fs"), "module AppTests")
-            File.WriteAllText(Path.Combine(src.FullName, "FooTest.fs"), "module FooTest")
-            File.WriteAllText(Path.Combine(src.FullName, "ScriptTests.fsx"), "module ScriptTests")
-            File.WriteAllText(Path.Combine(src.FullName, "ScriptTest.fsx"), "module ScriptTest")
+            let appTests = Path.Combine(src.FullName, "AppTests.fs")
+            let fooTest = Path.Combine(src.FullName, "FooTest.fs")
+            let protest = Path.Combine(src.FullName, "Protest.fs")
+            let scriptTests = Path.Combine(src.FullName, "ScriptTests.fsx")
+            let scriptTest = Path.Combine(src.FullName, "ScriptTest.fsx")
+
+            File.WriteAllText(appTests, "module AppTests")
+            File.WriteAllText(fooTest, "module FooTest")
+            File.WriteAllText(protest, "module Protest")
+            File.WriteAllText(scriptTests, "module ScriptTests")
+            File.WriteAllText(scriptTest, "module ScriptTest")
+
+            for name in [ "Test.fs"; "Tests.fs"; "Test.fsx"; "Tests.fsx" ] do
+                File.WriteAllText(Path.Combine(src.FullName, name), "module ExactTest")
 
             let discovered, errors =
                 Discovery.discover
@@ -625,7 +641,18 @@ type Service() =
                         IgnoreTests = true }
 
             Assert.Empty(errors)
-            Assert.Equal<string list>([ Path.GetFullPath(app) ], discovered)
+
+            Assert.Equal<string list>(
+                [ Path.GetFullPath(app)
+                  Path.GetFullPath(appTests)
+                  Path.GetFullPath(contestsFile)
+                  Path.GetFullPath(fooTest)
+                  Path.GetFullPath(protest)
+                  Path.GetFullPath(scriptTest)
+                  Path.GetFullPath(scriptTests)
+                  Path.GetFullPath(unitTestsFile) ],
+                discovered
+            )
         finally
             workspace.Delete(true)
 
