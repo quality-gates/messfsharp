@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.5
+
+- Fix `--ignore-tests` to accept only documented directory names (#104).
+- Resolve declaration references in near-linear time (#103).
+- Match development markers on word boundaries (#102).
+- Ignore line and documentation comments when collecting preceding attributes (#101).
+- Ignore literal delimiter bars in metrics (#100).
+- Scope child declaration grouping to enclosing parent scopes (#99).
+
 ## 0.1.4
 
 - Fix duplicate `KeyValuePair` keys in `Dictionary` constructors going undetected (#91).
