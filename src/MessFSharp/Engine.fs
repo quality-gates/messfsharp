@@ -196,6 +196,12 @@ module Engine =
                 Ok()
             | Some path ->
                 let fullPath = Path.GetFullPath(path)
+
+                let directory = Path.GetDirectoryName(fullPath)
+
+                if not (String.IsNullOrEmpty(directory)) then
+                    Directory.CreateDirectory(directory) |> ignore
+
                 File.WriteAllText(fullPath, content)
                 Ok()
         with ex ->
