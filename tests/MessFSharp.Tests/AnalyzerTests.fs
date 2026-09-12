@@ -2596,3 +2596,87 @@ type Service() =
             Assert.Equal(2, analyzed.ReferenceCountsByDeclaration.[(local.Name, local.Location.StartLine)])
 
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds 2.0, $"Analysis took {stopwatch.Elapsed}.")
+
+    [<Fact>]
+    let ``range expression upper bound parameter and local are not reported as unused`` () =
+        let sourceText =
+            """module RangeSample
+
+let iterate n =
+    for i in 1..n do
+        printfn "%d" i
+
+let compute () =
+    let len = 10
+    for i in 0..len do
+        printfn "%d" i
+"""
+
+        let analyzed = analyzeSource sourceText
+
+        let formalParamRule =
+            Rules.all |> List.find (fun r -> r.Name = "UnusedFormalParameter")
+
+        let paramSelection =
+            { Name = "UnusedFormalParameter"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let paramViolations = formalParamRule.Check analyzed paramSelection
+
+        Assert.Empty(paramViolations)
+
+        let unusedLocalRule =
+            Rules.all |> List.find (fun r -> r.Name = "UnusedLocalVariable")
+
+        let localSelection =
+            { Name = "UnusedLocalVariable"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let localViolations = unusedLocalRule.Check analyzed localSelection
+
+        Assert.Empty(localViolations)
+
+    [<Fact>]
+    let ``scanner ends number token before range operator and member access`` () =
+        let source =
+            { FullPath = "test.fs"
+              Kind = Implementation
+              Text = "1..n 0.CompareTo 1.5 1.0.ToString() 1.0..2.0 1_000 1..2 0.``CustomMember`` 0._internalField"
+              Lines =
+                [| "1..n 0.CompareTo 1.5 1.0.ToString() 1.0..2.0 1_000 1..2 0.``CustomMember`` 0._internalField" |] }
+
+        let tokens = Scanner.scan source
+        let tokenStrings = tokens |> Array.map (fun t -> sprintf "%A:%s" t.Kind t.Text)
+
+        Assert.Equal<string[]>(
+            [| "Number:1"
+               "Operator:.."
+               "Identifier:n"
+               "Number:0"
+               "Operator:."
+               "Identifier:CompareTo"
+               "Number:1.5"
+               "Number:1.0"
+               "Operator:."
+               "Identifier:ToString"
+               "Punctuation:("
+               "Punctuation:)"
+               "Number:1.0"
+               "Operator:.."
+               "Number:2.0"
+               "Number:1_000"
+               "Number:1"
+               "Operator:.."
+               "Number:2"
+               "Number:0"
+               "Operator:."
+               "Identifier:CustomMember"
+               "Number:0"
+               "Operator:."
+               "Identifier:_internalField" |],
+            tokenStrings
+        )
