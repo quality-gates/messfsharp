@@ -564,3 +564,22 @@ module AcceptanceTests =
             + newline,
             result.StandardOutput
         )
+
+    [<Fact>]
+    let ``range bounds and member access on numbers do not cause false unused code violations`` () =
+        let source = fixture "issue-105-range-bounds.fs"
+
+        let result =
+            PackagedTool.run
+                [ source
+                  "json"
+                  "unusedcode"
+                  "--only"
+                  "UnusedFormalParameter,UnusedLocalVariable" ]
+
+        Assert.Equal(0, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        use document = JsonDocument.Parse(result.StandardOutput)
+        Assert.Equal(0, document.RootElement.GetProperty("errors").GetArrayLength())
+        Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())

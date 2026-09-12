@@ -160,6 +160,12 @@ module Scanner =
 
     let private isAsciiDecimalDigit character = character >= '0' && character <= '9'
 
+    let private isRangeOrMemberAccessDot (text: string) length index =
+        index + 1 < length
+        && (text[index + 1] = '.'
+            || isIdentifierStart text[index + 1]
+            || text[index + 1] = '`')
+
     let private tryScanCharacterLiteral (text: string) length startIndex =
         if startIndex >= length || text[startIndex] <> '\'' then
             None
@@ -551,9 +557,18 @@ module Scanner =
                     let start = index
                     advance ()
 
-                    while index < length
-                          && (Char.IsLetterOrDigit(text[index]) || text[index] = '.' || text[index] = '_') do
-                        advance ()
+                    let mutable scanning = true
+
+                    while index < length && scanning do
+                        if text[index] = '.' then
+                            if isRangeOrMemberAccessDot text length index then
+                                scanning <- false
+                            else
+                                advance ()
+                        elif Char.IsLetterOrDigit(text[index]) || text[index] = '_' then
+                            advance ()
+                        else
+                            scanning <- false
 
                     addToken tokens Number (text.Substring(start, index - start)) startLine startColumn line column
                 elif isOperatorCharacter character then
