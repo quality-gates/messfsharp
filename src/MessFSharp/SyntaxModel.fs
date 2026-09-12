@@ -141,6 +141,20 @@ module SyntaxModel =
         else
             OrdinaryExpression
 
+    let rec private setTargetName (targetExpr: SynExpr) =
+        match targetExpr with
+        | SynExpr.Ident identifier -> Some identifier.idText
+        | SynExpr.LongIdent(longDotId = longIdentifier) ->
+            longIdentifier.LongIdent
+            |> List.tryLast
+            |> Option.map (fun identifier -> identifier.idText)
+        | SynExpr.DotGet(longDotId = longIdentifier) ->
+            longIdentifier.LongIdent
+            |> List.tryLast
+            |> Option.map (fun identifier -> identifier.idText)
+        | SynExpr.Paren(expr = inner) -> setTargetName inner
+        | _ -> None
+
     let private referenceName (expression: SynExpr) =
         match expression with
         | SynExpr.Ident identifier -> Some identifier.idText
@@ -148,6 +162,15 @@ module SyntaxModel =
             longIdentifier.LongIdent
             |> List.tryLast
             |> Option.map (fun identifier -> identifier.idText)
+        | SynExpr.LongIdentSet(longDotId = longIdentifier) ->
+            longIdentifier.LongIdent
+            |> List.tryLast
+            |> Option.map (fun identifier -> identifier.idText)
+        | SynExpr.DotSet(longDotId = longIdentifier) ->
+            longIdentifier.LongIdent
+            |> List.tryLast
+            |> Option.map (fun identifier -> identifier.idText)
+        | SynExpr.Set(targetExpr = target) -> setTargetName target
         | _ -> None
 
     let private contains outerRange innerRange =
