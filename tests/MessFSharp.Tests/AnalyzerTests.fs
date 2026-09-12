@@ -61,6 +61,23 @@ let choose condition left right =
         Assert.NotEmpty(analyzed.LexicalScopes)
 
     [<Fact>]
+    let ``compiler syntax collects syntactic references from mutation targets`` () =
+        let analyzed =
+            analyzeSource
+                """module MutationSyntax
+let mutable value = 0
+let update () =
+    value <- 1
+    (value) <- 2
+"""
+
+        let valueReferences =
+            analyzed.SyntacticReferences
+            |> List.filter (fun reference -> reference.Name = "value")
+
+        Assert.NotEmpty(valueReferences)
+
+    [<Fact>]
     let ``compiler bindings match existing member and property declarations`` () =
         let analyzed =
             analyzeSource
@@ -2667,6 +2684,100 @@ type Service() =
             Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
 
         Assert.Empty(rule.Check analyzed selection)
+
+    [<Fact>]
+    let ``lack of cohesion of methods counts field mutation targets as references`` () =
+        let analyzed =
+            analyzeSource
+                """namespace Sample
+
+type StatefulCounter() =
+    let mutable count = 0
+    member _.Reset() = count <- 0
+    member _.Set(value) = count <- value
+
+type StatefulWithThis() =
+    [<DefaultValue>]
+    val mutable count: int
+    member this.Reset() = this.count <- 0
+    member this.Set(value) = this.count <- value
+
+type StatefulDotSet() as this =
+    let mutable count = 0
+    member this.Reset() = (this).count <- 0
+    member this.Set(value) = (this).count <- value
+
+type StatefulParen() =
+    let mutable count = 0
+    member _.Reset() = (count) <- 0
+    member _.Set(value) = (count) <- value
+"""
+
+        let selection =
+            { Name = "LackOfCohesionOfMethods"
+              RulesetName = "test"
+              Priority = 3
+              Properties = Map.ofList [ "minimum", "1" ] }
+
+        let rule =
+            Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
+
+        Assert.Empty(rule.Check analyzed selection)
+
+    [<Fact>]
+    let ``lack of cohesion connects reader and writer methods of the same field`` () =
+        let analyzed =
+            analyzeSource
+                """namespace Sample
+
+type ReadWriteCounter() =
+    let mutable count = 0
+    member _.Get() = count
+    member _.Reset() = count <- 0
+"""
+
+        let selection =
+            { Name = "LackOfCohesionOfMethods"
+              RulesetName = "test"
+              Priority = 3
+              Properties = Map.ofList [ "minimum", "1" ] }
+
+        let rule =
+            Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
+
+        Assert.Empty(rule.Check analyzed selection)
+
+    [<Fact>]
+    let ``lack of cohesion reports methods that mutate disjoint fields`` () =
+        let analyzed =
+            analyzeSource
+                """namespace Sample
+
+type DisconnectedMutations() =
+    let mutable first = 0
+    let mutable second = 0
+    member _.ResetFirst() = first <- 0
+    member _.ResetSecond() = second <- 0
+
+type DisconnectedReadAndWrite() =
+    let mutable first = 0
+    let mutable second = 0
+    member _.GetFirst() = first
+    member _.ResetSecond() = second <- 0
+"""
+
+        let selection =
+            { Name = "LackOfCohesionOfMethods"
+              RulesetName = "test"
+              Priority = 3
+              Properties = Map.ofList [ "minimum", "1" ] }
+
+        let rule =
+            Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
+
+        let violations = rule.Check analyzed selection
+        Assert.Equal(2, violations.Length)
+        Assert.All(violations, fun v -> Assert.Equal("Type methods form 2 cohesion groups.", v.Description))
 
     [<Fact>]
     let ``coupling between objects calculates own names strictly within target declaration scope`` () =
