@@ -150,13 +150,52 @@ module Rules =
             && reference.Location.StartLine >= declaration.BodyStartLine
             && reference.Location.StartLine <= declaration.BodyEndLine)
 
-    let private bodyHasKeyword (file: AnalyzedFile) (declaration: Declaration) (keyword: string) =
-        file.Tokens
-        |> Array.exists (fun token ->
+    let private nextKeywordIndex (tokens: SyntaxToken array) startIndex keyword endLine =
+        let rec loop index =
+            if index >= tokens.Length || tokens[index].Line > endLine then
+                None
+            elif tokens[index].Kind = Keyword && tokens[index].Text = keyword then
+                Some index
+            else
+                loop (index + 1)
+
+        loop (startIndex + 1)
+
+    let private identifierOccursBetween (tokens: SyntaxToken array) startExclusive endExclusive name =
+        let rec loop index =
+            if index >= endExclusive then
+                false
+            elif tokens[index].Kind = Identifier && tokens[index].Text = name then
+                true
+            else
+                loop (index + 1)
+
+        loop (startExclusive + 1)
+
+    let private bodyHasParameterInBranchCondition
+        (file: AnalyzedFile)
+        (declaration: Declaration)
+        (parameterName: string)
+        =
+        let tokens = file.Tokens
+
+        tokens
+        |> Array.mapi (fun index token -> index, token)
+        |> Array.exists (fun (index, token) ->
             token.Kind = Keyword
-            && token.Text = keyword
             && token.Line >= declaration.BodyStartLine
-            && token.Line <= declaration.BodyEndLine)
+            && token.Line <= declaration.BodyEndLine
+            && match token.Text with
+               | "if"
+               | "elif" ->
+                   match nextKeywordIndex tokens index "then" declaration.BodyEndLine with
+                   | Some thenIndex -> identifierOccursBetween tokens index thenIndex parameterName
+                   | None -> false
+               | "match" ->
+                   match nextKeywordIndex tokens index "with" declaration.BodyEndLine with
+                   | Some withIndex -> identifierOccursBetween tokens index withIndex parameterName
+                   | None -> false
+               | _ -> false)
 
     let private mutationScope (file: AnalyzedFile) (declaration: Declaration) =
         file.Declarations
@@ -1384,14 +1423,7 @@ module Rules =
                                 |> List.sortByDescending (fun candidate -> candidate.Location.StartLine)
                                 |> List.tryHead
                                 |> Option.exists (fun candidate ->
-                                    (bodyHasKeyword file candidate "if")
-                                    && file.Tokens
-                                       |> Array.filter (fun token ->
-                                           token.Text = declaration.Name
-                                           && token.Line >= candidate.BodyStartLine
-                                           && token.Line <= candidate.BodyEndLine)
-                                       |> Array.length
-                                       |> fun count -> count > 1))))
+                                    bodyHasParameterInBranchCondition file candidate declaration.Name))))
                     file
                     selection
                     (fun declaration ->
