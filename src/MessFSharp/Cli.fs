@@ -24,6 +24,7 @@ Options:
   --minimumpriority <1..5>       Retain priorities less than or equal to this value.
   --maximumpriority <1..5>       Retain priorities greater than or equal to this value.
   --reportfile <path>            Write the report to a file instead of stdout.
+  --basedir <path>               Make report paths relative to this directory.
   --suffixes <.fs,...>           Replace the source suffix list.
   --exclude <text,...>           Exclude paths containing these substrings.
   --enable, --only <rule,...>    Select only named loaded rules.
@@ -42,6 +43,7 @@ Options:
         [ "--minimumpriority"
           "--maximumpriority"
           "--reportfile"
+          "--basedir"
           "--suffixes"
           "--exclude"
           "--enable"
@@ -154,6 +156,14 @@ Options:
                             match valueForOption () with
                             | Error message -> Invalid message
                             | Ok(value, nextIndex) -> continueWith { options with ReportFile = Some value } nextIndex
+                        | "--basedir" ->
+                            match valueForOption () with
+                            | Error message -> Invalid message
+                            | Ok(value, nextIndex) ->
+                                continueWith
+                                    { options with
+                                        BaseDirectory = Some value }
+                                    nextIndex
                         | "--suffixes" ->
                             match valueForOption () with
                             | Error message -> Invalid message

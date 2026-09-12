@@ -35,6 +35,7 @@
 
   <ItemGroup>
     <Compile Include="Domain.fs" />
+    <Compile Include="PathDisplay.fs" />
     <Compile Include="Discovery.fs" />
     <Compile Include="Preprocessor.fs" />
     <Compile Include="NonCodeText.fs" />
