@@ -17,6 +17,10 @@ Formats: `text`, `xml`, `json`, `html`, `ansi`, `github`, `gitlab`,
 names, locations, priorities, context, and processing errors. `--reportfile`
 writes the complete report and replaces an existing file.
 
+Report paths are relative to the current working directory when the source
+file is beneath it. Use `--basedir <path>` to choose a different report-path
+base; files outside that directory stay absolute.
+
 ## Examples
 
 ```console
@@ -31,6 +35,8 @@ messfsharp src json fsharp,codesize,design --only CyclomaticComplexity
 
 - `--minimumpriority n` retains priorities `<= n`; `--maximumpriority n`
   retains priorities `>= n` (priority 1 is highest).
+- `--basedir path` makes report paths relative to `path` instead of the current
+  working directory; paths outside that directory remain absolute.
 - `--suffixes .fs,.fsi` replaces the discovery suffix list.
 - `--exclude generated,legacy` excludes paths containing those values.
 - `--ignore-tests` skips `Test.fs`, `Tests.fs`, `Test.fsx`, `Tests.fsx`, and

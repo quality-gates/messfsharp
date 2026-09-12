@@ -31,6 +31,16 @@ module CliTests =
         | other -> Assert.True(false, sprintf "Expected Analyze, got %A" other)
 
     [<Fact>]
+    let ``analysis parses the report path base directory option`` () =
+        match Cli.parse [| "src"; "json"; "fsharp"; "--basedir"; "repository" |] with
+        | Analyze options -> Assert.Equal(Some "repository", options.BaseDirectory)
+        | other -> Assert.True(false, sprintf "Expected Analyze, got %A" other)
+
+    [<Fact>]
+    let ``help documents the report path base directory option`` () =
+        Assert.Contains("--basedir <path>", Cli.usage)
+
+    [<Fact>]
     let ``invalid command shape is reported as an error`` () =
         match Cli.parse [| "src"; "text" |] with
         | Invalid message -> Assert.Contains("exactly three positional", message)

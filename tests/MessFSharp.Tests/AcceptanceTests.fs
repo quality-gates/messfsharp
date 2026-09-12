@@ -104,6 +104,9 @@ module private PackagedTool =
     let run arguments =
         execute repositoryRoot executable.Value arguments
 
+    let runFrom workingDirectory arguments =
+        execute workingDirectory executable.Value arguments
+
     let path relativePath =
         Path.Combine(repositoryRoot, relativePath)
 
@@ -112,6 +115,8 @@ module AcceptanceTests =
 
     let private fixture name =
         PackagedTool.path (Path.Combine("tests", "Fixtures", name))
+
+    let private relativeFixture name = Path.Combine("tests", "Fixtures", name)
 
     [<Fact>]
     let ``packaged executable has exact help and version behavior`` () =
@@ -126,6 +131,107 @@ module AcceptanceTests =
         Assert.Equal("", version.StandardError)
 
     [<Fact>]
+    let ``report paths are relative to the working directory across all formats`` () =
+        let relativeSource = Path.Combine("tests", "Fixtures", "bad.fs")
+        let absoluteSource = PackagedTool.path relativeSource
+
+        for format in [ "github"; "gitlab"; "sarif"; "checkstyle"; "text"; "ansi"; "html" ] do
+            let result =
+                PackagedTool.run
+                    [ relativeSource
+                      format
+                      "fsharp"
+                      "--only"
+                      "GlobalVariable"
+                      "--ignore-violations-on-exit" ]
+
+            Assert.Equal(0, result.ExitCode)
+            Assert.Equal("", result.StandardError)
+            Assert.Contains(relativeSource, result.StandardOutput)
+            Assert.DoesNotContain(absoluteSource, result.StandardOutput)
+
+    [<Fact>]
+    let ``basedir makes report paths relative when running outside the repository`` () =
+        let repositoryRoot = PackagedTool.path ""
+        let parentDirectory = Directory.GetParent(repositoryRoot).FullName
+        let source = PackagedTool.path (Path.Combine("tests", "Fixtures", "bad.fs"))
+
+        let result =
+            PackagedTool.runFrom
+                parentDirectory
+                [ source
+                  "github"
+                  "fsharp"
+                  "--only"
+                  "GlobalVariable"
+                  "--basedir"
+                  repositoryRoot
+                  "--ignore-violations-on-exit" ]
+
+        Assert.Equal(0, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+        Assert.Contains("file=tests/Fixtures/bad.fs", result.StandardOutput)
+        Assert.DoesNotContain(source, result.StandardOutput)
+
+    [<Fact>]
+    let ``report paths stay absolute for files outside the base including symlink targets`` () =
+        let outsideDirectory = Directory.CreateTempSubdirectory("messfsharp-report-paths-")
+        let outsideSource = Path.Combine(outsideDirectory.FullName, "Outside.fs")
+        let linkName = $"messfsharp-report-path-{Guid.NewGuid():N}.fs"
+        let linkPath = PackagedTool.path linkName
+
+        try
+            let reportedPath (output: string) =
+                let start = output.IndexOf("file=", StringComparison.Ordinal) + "file=".Length
+                let finish = output.IndexOf(",line=", start, StringComparison.Ordinal)
+                output.Substring(start, finish - start)
+
+            File.WriteAllText(
+                outsideSource,
+                "module Outside\nlet mutable shared = 0\nlet update () = shared <- shared + 1\n"
+            )
+
+            let outsideResult =
+                PackagedTool.run
+                    [ outsideSource
+                      "github"
+                      "fsharp"
+                      "--only"
+                      "GlobalVariable"
+                      "--ignore-violations-on-exit" ]
+
+            Assert.Equal(0, outsideResult.ExitCode)
+            Assert.Equal("", outsideResult.StandardError)
+            let outsideReportedPath = reportedPath outsideResult.StandardOutput
+            Assert.True(Path.IsPathRooted(outsideReportedPath))
+            Assert.EndsWith("Outside.fs", outsideReportedPath)
+            Assert.True(File.Exists(outsideReportedPath))
+
+            File.CreateSymbolicLink(linkPath, outsideSource) |> ignore
+
+            let linkedResult =
+                PackagedTool.run
+                    [ Path.GetRelativePath(PackagedTool.path "", linkPath)
+                      "github"
+                      "fsharp"
+                      "--only"
+                      "GlobalVariable"
+                      "--ignore-violations-on-exit" ]
+
+            Assert.Equal(0, linkedResult.ExitCode)
+            Assert.Equal("", linkedResult.StandardError)
+            let linkedReportedPath = reportedPath linkedResult.StandardOutput
+            Assert.True(Path.IsPathRooted(linkedReportedPath))
+            Assert.EndsWith("Outside.fs", linkedReportedPath)
+            Assert.True(File.Exists(linkedReportedPath))
+            Assert.DoesNotContain(linkName, linkedResult.StandardOutput)
+        finally
+            if File.Exists(linkPath) then
+                File.Delete(linkPath)
+
+            outsideDirectory.Delete(true)
+
+    [<Fact>]
     let ``packaged executable detects duplicate keys after nested brackets`` () =
         let source = fixture "issue-32-nested-map.fs"
 
@@ -136,7 +242,7 @@ module AcceptanceTests =
         Assert.Equal("", result.StandardError)
 
         Assert.Equal(
-            source
+            relativeFixture "issue-32-nested-map.fs"
             + ":4:DuplicatedArrayKey: A map or dictionary construction contains a duplicate key."
             + newline,
             result.StandardOutput
@@ -153,7 +259,7 @@ module AcceptanceTests =
         Assert.Equal("", result.StandardError)
 
         Assert.Equal(
-            source
+            relativeFixture "issue-84-qualified-dictionary.fs"
             + ":6:DuplicatedArrayKey: A map or dictionary construction contains a duplicate key."
             + newline,
             result.StandardOutput
@@ -580,6 +686,7 @@ module AcceptanceTests =
     [<Fact>]
     let ``development markers match on word boundaries rather than raw substrings`` () =
         let source = fixture "issue-96-marker-boundaries.fs"
+        let relativeSource = relativeFixture "issue-96-marker-boundaries.fs"
 
         let result =
             PackagedTool.run [ source; "text"; "design"; "--only"; "DevelopmentCodeFragment" ]
@@ -590,13 +697,13 @@ module AcceptanceTests =
         Assert.Equal(
             String.concat
                 newline
-                [ source
+                [ relativeSource
                   + ":3:DevelopmentCodeFragment: Development-only marker found in production source."
-                  source
+                  relativeSource
                   + ":4:DevelopmentCodeFragment: Development-only marker found in production source."
-                  source
+                  relativeSource
                   + ":5:DevelopmentCodeFragment: Development-only marker found in production source."
-                  source
+                  relativeSource
                   + ":6:DevelopmentCodeFragment: Development-only marker found in production source." ]
             + newline,
             result.StandardOutput
@@ -604,6 +711,8 @@ module AcceptanceTests =
 
     [<Fact>]
     let ``custom unwanted functions match with the same word boundary awareness`` () =
+        let relativeSource = relativeFixture "issue-96-marker-boundaries.fs"
+
         let result =
             PackagedTool.run
                 [ fixture "issue-96-marker-boundaries.fs"
@@ -616,9 +725,9 @@ module AcceptanceTests =
         Assert.Equal(
             String.concat
                 newline
-                [ fixture "issue-96-marker-boundaries.fs"
+                [ relativeSource
                   + ":6:DevelopmentCodeFragment: Development-only marker found in production source."
-                  fixture "issue-96-marker-boundaries.fs"
+                  relativeSource
                   + ":14:DevelopmentCodeFragment: Development-only marker found in production source." ]
             + newline,
             result.StandardOutput

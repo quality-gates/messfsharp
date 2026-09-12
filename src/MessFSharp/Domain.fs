@@ -202,6 +202,7 @@ module Domain =
           MinimumPriority: int option
           MaximumPriority: int option
           ReportFile: string option
+          BaseDirectory: string option
           Suffixes: string list
           Excludes: string list
           Enable: string list
@@ -265,6 +266,7 @@ module Domain =
               MinimumPriority = None
               MaximumPriority = None
               ReportFile = None
+              BaseDirectory = None
               Suffixes = suffixes
               Excludes = []
               Enable = []

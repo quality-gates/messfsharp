@@ -182,6 +182,11 @@ module Engine =
                       Violations = violations |> Seq.toList |> distinctViolations |> sortViolations
                       Errors = processingErrors |> Seq.toList |> sortErrors }
 
+                let baseDirectory =
+                    options.BaseDirectory |> Option.defaultValue (Directory.GetCurrentDirectory())
+
+                let report = PathDisplay.report baseDirectory report
+
                 { Report = report
                   Warnings = filtered.Warnings
                   ExitCode = calculateExitCode options report }
