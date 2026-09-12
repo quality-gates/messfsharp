@@ -2587,6 +2587,49 @@ let matchingFunction value =
         Assert.Equal<int list>([ 1; 1; 3; 3 ], actual)
 
     [<Fact>]
+    let ``elif branches count toward cyclomatic and NPath complexity`` () =
+        let analyzed =
+            analyzeSource
+                """module ElifChains
+
+let chain x =
+    if x = 0 then 0
+    elif x = 1 then 1
+    elif x = 2 then 2
+    elif x = 3 then 3
+    elif x = 4 then 4
+    elif x = 5 then 5
+    elif x = 6 then 6
+    elif x = 7 then 7
+    elif x = 8 then 8
+    elif x = 9 then 9
+    elif x = 10 then 10
+    elif x = 11 then 11
+    elif x = 12 then 12
+    else 13
+
+let nested x =
+    if x = 0 then 0
+    else
+        if x = 1 then 1
+        else
+            if x = 2 then 2
+            else 3
+"""
+
+        let metric (map: Map<string * int, int>) name =
+            let declaration =
+                analyzed.Declarations
+                |> List.find (fun declaration -> declaration.Kind = Function && declaration.Name = name)
+
+            Map.tryFind (declaration.Name, declaration.Location.StartLine) map
+            |> Option.defaultValue 0
+
+        Assert.Equal(14, metric analyzed.ComplexityByDeclaration "chain")
+        Assert.Equal(4, metric analyzed.ComplexityByDeclaration "nested")
+        Assert.Equal(14, metric analyzed.NPathByDeclaration "chain")
+
+    [<Fact>]
     let ``declarations in inactive conditional compilation branches are excluded`` () =
         let analyzed =
             analyzeSource
