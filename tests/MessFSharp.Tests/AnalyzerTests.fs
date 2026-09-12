@@ -1854,7 +1854,8 @@ let alsoSuppressed () = 43
 
         Assert.Empty(result.Report.Errors)
 
-        let sourceLines = File.ReadAllLines(fixture "issue-107-static-access-type-positions.fs")
+        let sourceLines =
+            File.ReadAllLines(fixture "issue-107-static-access-type-positions.fs")
 
         let flagged =
             result.Report.Violations
