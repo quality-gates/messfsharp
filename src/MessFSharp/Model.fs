@@ -1034,6 +1034,14 @@ module Model =
                 | _ -> None)
             |> Set.ofList
 
+        let implicitInputBindings =
+            facts.Declarations
+            |> List.choose (fun fact ->
+                match fact.Kind with
+                | SyntaxModel.BindingFact when fact.HasImplicitInput -> Some(fact.Location.StartLine, fact.Name)
+                | _ -> None)
+            |> Set.ofList
+
         for lineNumber in 1 .. source.Lines.Length do
             let line = source.Lines[lineNumber - 1]
             let indent = indentation line
@@ -1270,8 +1278,17 @@ module Model =
                                 | Some name ->
                                     let endLine = scopeEnd source lineNumber indent Function
                                     let declarationText = sourceText source lineNumber endLine
-                                    let parameterCount = parseParameterInfos declarationText name |> List.length
+                                    let namedParameterCount = parseParameterInfos declarationText name |> List.length
                                     let bindingText = letMatch.Groups["binding"].Value.Trim()
+
+                                    let hasImplicitInput = Set.contains (lineNumber, name) implicitInputBindings
+
+                                    // A `function` body takes one input that the binding pattern does not name.
+                                    let parameterCount =
+                                        if hasImplicitInput then
+                                            max namedParameterCount 1
+                                        else
+                                            namedParameterCount
 
                                     let hasExplicitParameterGroup =
                                         bindingText.Length > name.Length
@@ -1777,7 +1794,8 @@ module Model =
                 |> not
                 ->
                 let parent = nearestDeclarationParent (result |> Seq.toList) fact.Location.StartLine
-                let isFunction = fact.ParameterCount > 0
+                let parameterCount = SyntaxModel.inputCount fact
+                let isFunction = parameterCount > 0
 
                 let isModuleLevel =
                     enclosingBody (result |> Seq.toList) fact.Location.StartLine |> Option.isNone
@@ -1809,7 +1827,7 @@ module Model =
                         false
                         isFunction
                         isModuleLevel
-                        fact.ParameterCount
+                        parameterCount
                         startLine
                         endLine
                         startLine
