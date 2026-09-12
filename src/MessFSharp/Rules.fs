@@ -283,9 +283,9 @@ module Rules =
     let private tokensOnLine (file: AnalyzedFile) lineNumber =
         file.Tokens |> Array.filter (fun token -> token.Line = lineNumber)
 
-    let private codeTextOnLine (file: AnalyzedFile) lineNumber afterColumn =
+    let private codeTextInRange (file: AnalyzedFile) lineNumber afterColumn maxColumn =
         tokensOnLine file lineNumber
-        |> Array.filter (fun token -> token.Column > afterColumn)
+        |> Array.filter (fun token -> token.Column > afterColumn && token.Column <= maxColumn)
         |> Array.map (fun token -> token.Text)
         |> String.concat ""
 
@@ -1674,38 +1674,48 @@ module Rules =
           Description = "Reports exception handlers whose branch does no meaningful work."
           Check =
             fun file selection ->
-                let lineCount = file.Source.Lines.Length
-
                 let clauseLine (clause: SourceLocation) =
-                    let lineNumber = clause.StartLine
+                    let rec findArrow line =
+                        if line > clause.EndLine then
+                            None
+                        else
+                            let lineTokens =
+                                tokensOnLine file line
+                                |> Array.filter (fun token ->
+                                    (line > clause.StartLine || token.Column >= clause.StartColumn)
+                                    && (line < clause.EndLine || token.Column <= clause.EndColumn))
 
-                    let arrowColumn =
-                        tokensOnLine file lineNumber
-                        |> Array.tryFind (fun token -> token.Kind = Operator && token.Text = "->")
-                        |> Option.map (fun token -> token.Column)
+                            match
+                                lineTokens
+                                |> Array.tryFind (fun token -> token.Kind = Operator && token.Text = "->")
+                            with
+                            | Some token -> Some(line, token.Column)
+                            | None -> findArrow (line + 1)
 
-                    let afterArrow =
-                        match arrowColumn with
-                        | Some column -> codeTextOnLine file lineNumber column
-                        | None -> ""
+                    match findArrow clause.StartLine with
+                    | None -> None
+                    | Some(arrowLine, arrowColumn) ->
+                        let bodyLines =
+                            [ arrowLine .. clause.EndLine ]
+                            |> List.choose (fun line ->
+                                let afterCol = if line = arrowLine then arrowColumn else 0
 
-                    let mutable nextIndex = lineNumber
-                    let mutable nextMeaningful = None
+                                let maxCol =
+                                    if line = clause.EndLine then
+                                        clause.EndColumn
+                                    else
+                                        Int32.MaxValue
 
-                    while nextIndex < lineCount && nextMeaningful.IsNone do
-                        let text = codeTextOnLine file (nextIndex + 1) 0
+                                let text = codeTextInRange file line afterCol maxCol
+                                if text <> "" then Some text else None)
 
-                        if text <> "" then
-                            nextMeaningful <- Some text
+                        let emptyBody =
+                            bodyLines.IsEmpty || bodyLines |> List.forall (fun line -> line = "()")
 
-                        nextIndex <- nextIndex + 1
-
-                    let emptyBody = afterArrow = "()" || nextMeaningful = Some "()"
-
-                    if emptyBody then
-                        Some(violation file selection None lineNumber "Exception handler is empty.")
-                    else
-                        None
+                        if emptyBody then
+                            Some(violation file selection None clause.StartLine "Exception handler is empty.")
+                        else
+                            None
 
                 file.ExceptionHandlerClauses
                 |> List.choose clauseLine
