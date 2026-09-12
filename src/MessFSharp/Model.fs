@@ -779,7 +779,7 @@ module Model =
         let within (token: SyntaxToken) =
             token.Line >= startLine && token.Line <= endLine
 
-        let branchWords = set [ "if"; "for"; "while"; "try"; "when" ]
+        let branchWords = set [ "if"; "elif"; "for"; "while"; "try"; "when" ]
 
         let wordBranches =
             tokens
@@ -869,6 +869,22 @@ module Model =
                 ifThens.Add(None)
                 ifElses.Add(None)
                 stack.Add(ifStarts.Count - 1)
+            | "elif" ->
+                match
+                    findTopmost (fun candidate ->
+                        ifThens[candidate].IsSome
+                        && ifElses[candidate].IsNone
+                        && scopedTokens[ifStarts[candidate]].Column <= scopedTokens[index].Column)
+                with
+                | Some(stackPosition, candidate) ->
+                    ifElses[candidate] <- Some index
+                    stack.RemoveAt(stackPosition)
+                | None -> ()
+
+                ifStarts.Add(index)
+                ifThens.Add(None)
+                ifElses.Add(None)
+                stack.Add(ifStarts.Count - 1)
             | "then" ->
                 match findTopmost (fun candidate -> ifThens[candidate].IsNone) with
                 | Some(_, candidate) -> ifThens[candidate] <- Some index
@@ -940,7 +956,7 @@ module Model =
 
                     let elsePaths =
                         elseIndex
-                        |> Option.map (fun elseIndex -> paths (elseIndex + 1) decisionEndExclusive)
+                        |> Option.map (fun elseIndex -> paths elseIndex decisionEndExclusive)
                         |> Option.defaultValue 1
 
                     multiply result (add thenPaths elsePaths))
