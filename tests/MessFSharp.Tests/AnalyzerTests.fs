@@ -1935,6 +1935,34 @@ let annotated (value: int) = value
         Assert.Equal<int list>([ 15 ], flagLines)
 
     [<Fact>]
+    let ``boolean argument flag requires the parameter in a branching condition`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                { Defaults.analysisOptions with
+                    Paths = [ fixture "issue-109-boolean-argument-flag.fs" ]
+                    Rulesets = [ "cleancode" ]
+                    Format = Json
+                    Only = [ "BooleanArgumentFlag" ] }
+
+        Assert.Empty(result.Report.Errors)
+
+        let sourceLines = File.ReadAllLines(fixture "issue-109-boolean-argument-flag.fs")
+
+        let flagged =
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = "BooleanArgumentFlag")
+            |> List.map (fun violation -> sourceLines[violation.Location.StartLine - 1].Trim())
+            |> List.sort
+
+        Assert.Equal<string list>(
+            [ "let elifCondition (count: int) (item: bool) ="
+              "let ifCondition (item: bool) = if item then 1 else 0"
+              "let matchTarget (item: bool) =" ],
+            flagged
+        )
+
+    [<Fact>]
     let ``boolean argument flag does not match unanchored substring use in words like isUser or paused`` () =
         let analyzed =
             analyzeSource
