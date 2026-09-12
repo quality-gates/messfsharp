@@ -1848,6 +1848,27 @@ let alsoSuppressed () = 43
         Assert.DoesNotContain(result.Report.Violations, fun violation -> violation.RuleName = "StaticAccess")
 
     [<Fact>]
+    let ``static access does not flag type abbreviations interface implementations and inheritance`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "issue-107-static-access-type-positions.fs" ] [ "cleancode" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let sourceLines = File.ReadAllLines(fixture "issue-107-static-access-type-positions.fs")
+
+        let flagged =
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = "StaticAccess")
+            |> List.map (fun violation -> sourceLines[violation.Location.StartLine - 1].Trim())
+            |> List.sort
+
+        Assert.Equal<string list>(
+            [ "let now () = System.DateTime.UtcNow"
+              "let read () = System.IO.File.ReadAllText(\"input.txt\")" ],
+            flagged
+        )
+
+    [<Fact>]
     let ``static access still flags static member and property invocations`` () =
         let analyzed =
             analyzeSource
