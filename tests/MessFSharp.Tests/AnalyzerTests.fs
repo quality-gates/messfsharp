@@ -2981,3 +2981,54 @@ let compute () =
                "Identifier:_internalField" |],
             tokenStrings
         )
+
+    [<Fact>]
+    let ``point-free function binding is measured like its explicit-parameter equivalent`` () =
+        let analyzed =
+            analyzeSource (File.ReadAllText(fixture "issue-111-point-free-function-binding.fs"))
+
+        let declaration name =
+            analyzed.Declarations |> List.find (fun declaration -> declaration.Name = name)
+
+        let pointFree = declaration "pointFreeDispatcher"
+        let explicitParameter = declaration "explicitDispatcher"
+
+        Assert.Equal(Function, pointFree.Kind)
+        Assert.True(pointFree.IsFunction)
+        Assert.Equal(1, pointFree.ParameterCount)
+        Assert.Equal(Function, explicitParameter.Kind)
+        Assert.Equal(Value, (declaration "plainValue").Kind)
+
+        let complexityOf (declaration: Declaration) =
+            Map.find (declaration.Name, declaration.Location.StartLine) analyzed.ComplexityByDeclaration
+
+        Assert.Equal(complexityOf explicitParameter, complexityOf pointFree)
+
+    [<Fact>]
+    let ``point-free function binding reports method rules instead of variable rules`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                { Defaults.analysisOptions with
+                    Paths = [ fixture "issue-111-point-free-function-binding.fs" ]
+                    Rulesets = [ "codesize"; "naming" ]
+                    Format = Json }
+
+        Assert.Empty(result.Report.Errors)
+
+        let sourceLines =
+            File.ReadAllLines(fixture "issue-111-point-free-function-binding.fs")
+
+        let reported ruleName =
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = ruleName)
+            |> List.map (fun violation -> sourceLines[violation.Location.StartLine - 1].Trim())
+            |> List.sort
+
+        Assert.Equal<string list>(
+            [ "let explicitDispatcher command ="; "let pointFreeDispatcher =" ],
+            reported "CyclomaticComplexity"
+        )
+
+        Assert.Equal<string list>([ "let pf =" ], reported "ShortMethodName")
+        Assert.Empty(reported "ShortVariable")

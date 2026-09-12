@@ -22,6 +22,7 @@ module SyntaxModel =
           Location: SourceLocation
           IsMutable: bool
           ParameterCount: int
+          HasImplicitInput: bool
           Parameters: (string * SourceLocation) list }
 
     type Facts =
@@ -30,6 +31,13 @@ module SyntaxModel =
           ExceptionHandlerClauses: SourceLocation list
           LexicalScopes: LexicalScope list
           References: SyntacticReference list }
+
+    /// The number of inputs a binding accepts. A `function` body gives one implicit input.
+    let inputCount (fact: DeclarationFact) =
+        if fact.HasImplicitInput then
+            fact.ParameterCount + 1
+        else
+            fact.ParameterCount
 
     let private location fileName (range: range) =
         { File = fileName
@@ -210,18 +218,26 @@ module SyntaxModel =
         | SynExpr.TryWith(withCases = clauses) -> clauses |> List.map (fun clause -> location fileName clause.Range)
         | _ -> []
 
-    let private bindingFacts fileName pattern isMutable nodeRange =
+    /// A point-free `function` body takes its input without a name in the binding pattern.
+    let private hasImplicitInput (body: SynExpr) =
+        match body with
+        | SynExpr.MatchLambda _ -> true
+        | _ -> false
+
+    let private bindingFacts fileName pattern isMutable nodeRange body =
         let bindingLocation = location fileName nodeRange
 
         match patternName pattern with
         | Some name ->
             let parameters = bindingParameters fileName pattern
+            let parameterCount = bindingParameterCount pattern
 
             [ { Name = name
                 Kind = BindingFact
                 Location = bindingLocation
                 IsMutable = isMutable
-                ParameterCount = bindingParameterCount pattern
+                ParameterCount = parameterCount
+                HasImplicitInput = parameterCount = 0 && hasImplicitInput body
                 Parameters = parameters } ]
         | None ->
             parameterPatterns pattern
@@ -231,6 +247,7 @@ module SyntaxModel =
                   Location = location fileName patternRange
                   IsMutable = isMutable
                   ParameterCount = 0
+                  HasImplicitInput = false
                   Parameters = [] })
 
     let normalize fileName (parsedInput: ParsedInput) =
@@ -251,6 +268,7 @@ module SyntaxModel =
                       Location = location fileName nodeRange
                       IsMutable = false
                       ParameterCount = 0
+                      HasImplicitInput = false
                       Parameters = [] }
 
                 fact :: declarations,
@@ -268,6 +286,7 @@ module SyntaxModel =
                       Location = location fileName nodeRange
                       IsMutable = false
                       ParameterCount = 0
+                      HasImplicitInput = false
                       Parameters = [] }
 
                 fact :: declarations,
@@ -277,9 +296,9 @@ module SyntaxModel =
                   Parent = None }
                 :: scopes,
                 references
-            | SyntaxNode.SynBinding(SynBinding(headPat = pattern; isMutable = isMutable; range = nodeRange)) ->
+            | SyntaxNode.SynBinding(SynBinding(headPat = pattern; isMutable = isMutable; expr = body; range = nodeRange)) ->
                 let bindingLocation = location fileName nodeRange
-                let facts = bindingFacts fileName pattern isMutable nodeRange
+                let facts = bindingFacts fileName pattern isMutable nodeRange body
 
                 facts @ declarations,
                 expressions,
