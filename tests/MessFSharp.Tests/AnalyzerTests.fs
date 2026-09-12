@@ -1172,6 +1172,103 @@ let run status =
         Assert.Equal<int list>([ 6; 15; 22 ], catchLines)
 
     [<Fact>]
+    let ``empty catch block does not report handlers with statements after unit`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let run () =
+    try
+        printfn "attempt"
+    with
+    | ex ->
+        ()
+        printfn "Caught exception: %O" ex
+"""
+
+        let selection =
+            { Name = "EmptyCatchBlock"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``empty catch block reports empty handlers behind multiline pattern or when guard`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let run () =
+    try
+        printfn "attempt"
+    with
+    | :? System.IO.IOException
+        when true ->
+        ()
+"""
+
+        let selection =
+            { Name = "EmptyCatchBlock"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
+        let violations = rule.Check analyzed selection
+        Assert.Single(violations) |> ignore
+        Assert.Equal(7, violations[0].Location.StartLine)
+
+    [<Fact>]
+    let ``empty catch block does not report non-empty handlers behind multiline pattern or when guard`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let run () =
+    try
+        printfn "attempt"
+    with
+    | :? System.IO.IOException
+        when true ->
+        printfn "Failed IO"
+"""
+
+        let selection =
+            { Name = "EmptyCatchBlock"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
+    let ``empty catch block correctly classifies handlers across multiline clauses and statements after unit`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                { Defaults.analysisOptions with
+                    Paths = [ fixture "issue-106-empty-catch-block.fs" ]
+                    Rulesets = [ "design" ]
+                    Format = Json
+                    Only = [ "EmptyCatchBlock" ] }
+
+        Assert.Empty(result.Report.Errors)
+        Assert.Equal(2, result.ExitCode)
+
+        let catchLines =
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = "EmptyCatchBlock")
+            |> List.map (fun violation -> violation.Location.StartLine)
+
+        Assert.Equal<int list>([ 13; 30 ], catchLines)
+
+    [<Fact>]
     let ``interpolated string holes are scanned and referenced bindings are not unused`` () =
         let analyzed =
             analyzeSource
