@@ -1436,6 +1436,46 @@ module Rules =
         token.Kind = Operator
         && (token.Text = ":" || token.Text = ":?" || token.Text = ":?>")
 
+    // These keywords introduce a type name, not an expression: 'open', 'namespace'
+    // and 'module' name a namespace, 'interface' names an implemented interface,
+    // and 'inherit' names a base type.
+    let private isTypeIntroducingKeyword (token: SyntaxToken) =
+        token.Kind = Keyword
+        && (token.Text = "open"
+            || token.Text = "namespace"
+            || token.Text = "module"
+            || token.Text = "interface"
+            || token.Text = "inherit")
+
+    // The tokens that can occur between the 'type' keyword and the '=' of a type
+    // declaration head: the type name, its generic parameters, and the parentheses
+    // of a primary constructor.
+    let private isTypeHeadToken (token: SyntaxToken) =
+        match token.Kind with
+        | Identifier -> true
+        | Keyword -> token.Text = "private" || token.Text = "internal" || token.Text = "public"
+        | Punctuation
+        | Operator ->
+            token.Text = "("
+            || token.Text = ")"
+            || token.Text = "<"
+            || token.Text = ">"
+            || token.Text = ","
+        | _ -> false
+
+    // True when the token at 'index' is the '=' that closes a type declaration
+    // head. What follows such an '=' can be an abbreviated type name.
+    let private closesTypeDeclarationHead (tokens: SyntaxToken array) index =
+        if index < 0 || tokens[index].Text <> "=" then
+            false
+        else
+            let mutable cursor = index - 1
+
+            while cursor >= 0 && isTypeHeadToken tokens[cursor] do
+                cursor <- cursor - 1
+
+            cursor >= 0 && tokens[cursor].Kind = Keyword && tokens[cursor].Text = "type"
+
     let staticAccess =
         { Name = "StaticAccess"
           DefaultPriority = 3
@@ -1501,13 +1541,8 @@ module Rules =
                         && startsWithUpper tokens[i + 2].Text
                         && tokens[i + 3].Text = "."
                         && tokens[i + 4].Kind = Identifier
-                        && not (
-                            i > 0
-                            && tokens[i - 1].Kind = Keyword
-                            && (tokens[i - 1].Text = "open"
-                                || tokens[i - 1].Text = "namespace"
-                                || tokens[i - 1].Text = "module")
-                        )
+                        && not (i > 0 && isTypeIntroducingKeyword tokens[i - 1])
+                        && not (closesTypeDeclarationHead tokens (i - 1))
                         && not inAttribute
                         && not inType
                     then
