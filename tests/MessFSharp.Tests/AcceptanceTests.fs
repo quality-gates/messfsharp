@@ -437,6 +437,65 @@ module AcceptanceTests =
             File.Delete(path)
 
     [<Fact>]
+    let ``report file creates missing parent directories and preserves violation exit code`` () =
+        let directory = Directory.CreateTempSubdirectory("messfsharp-report-nested-")
+        let path = Path.Combine(directory.FullName, "reports", "nested", "messfsharp.sarif")
+
+        try
+            Assert.False(Directory.Exists(Path.GetDirectoryName(path)))
+
+            let result =
+                PackagedTool.run [ fixture "bad.fs"; "sarif"; "fsharp"; "--reportfile"; path ]
+
+            Assert.Equal(2, result.ExitCode)
+            Assert.Equal("", result.StandardOutput)
+            Assert.Equal("", result.StandardError)
+            Assert.True(File.Exists(path))
+
+            use document = JsonDocument.Parse(File.ReadAllText(path))
+            let results = (document.RootElement.GetProperty("runs")[0]).GetProperty("results")
+            Assert.NotEqual(0, results.GetArrayLength())
+        finally
+            directory.Delete(true)
+
+    [<Fact>]
+    let ``bare report file target continues to work`` () =
+        let fileName = $"messfsharp-report-{Guid.NewGuid():N}.json"
+        let path = PackagedTool.path fileName
+
+        try
+            let result =
+                PackagedTool.run [ fixture "clean.fs"; "json"; "fsharp"; "--reportfile"; fileName ]
+
+            Assert.Equal(0, result.ExitCode)
+            Assert.Equal("", result.StandardOutput)
+            Assert.Equal("", result.StandardError)
+            Assert.True(File.Exists(path))
+
+            use document = JsonDocument.Parse(File.ReadAllText(path))
+            Assert.Equal("messfsharp", document.RootElement.GetProperty("tool").GetString())
+        finally
+            File.Delete(path)
+
+    [<Fact>]
+    let ``unwritable report file target remains an operational error`` () =
+        let directory = Directory.CreateTempSubdirectory("messfsharp-report-unwritable-")
+        let blockedPath = Path.Combine(directory.FullName, "blocked")
+        File.WriteAllText(blockedPath, "not a directory")
+        let path = Path.Combine(blockedPath, "report.json")
+
+        try
+            let result =
+                PackagedTool.run [ fixture "clean.fs"; "json"; "fsharp"; "--reportfile"; path ]
+
+            Assert.Equal(1, result.ExitCode)
+            Assert.Equal("", result.StandardOutput)
+            Assert.Contains("error: Could not render or write report:", result.StandardError)
+            Assert.False(File.Exists(path))
+        finally
+            directory.Delete(true)
+
+    [<Fact>]
     let ``verbose short option surfaces referenced-rule warnings without changing the report`` () =
         let rulesetPath = fixture "unknown-reference.xml"
 
