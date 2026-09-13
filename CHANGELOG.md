@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.6
+
+- Emit relative paths in GitHub, GitLab, SARIF, and Checkstyle reports (#113).
+- Classify point-free `function` bindings as functions (#111).
+- Create parent directories when writing reports with `--reportfile` (#112).
+- Count `elif` branches in cyclomatic, NPath, and class complexity metrics (#110).
+- Flag boolean parameters only when they govern control flow (#109).
+- Count field mutation targets as references in `LackOfCohesionOfMethods` (#108).
+- Exempt type abbreviations, interface implementations, and class inheritance from `StaticAccess` (#107).
+- Evaluate empty catch blocks across multiline clauses and full handler bodies (#106).
+- End numeric literal scanning before range operators and member access (#105).
+
 ## 0.1.5
 
 - Fix `--ignore-tests` to accept only documented directory names (#104).
