@@ -23,6 +23,14 @@ module Model =
           Column: int
           IsBoolean: bool }
 
+    let private leadingCount (text: string) (character: char) =
+        let mutable count = 0
+
+        while count < text.Length && text[count] = character do
+            count <- count + 1
+
+        count
+
     let private declarationRegex pattern =
         Regex(pattern, RegexOptions.Compiled ||| RegexOptions.CultureInvariant)
 
@@ -584,7 +592,12 @@ module Model =
 
                             braceDepth <- braceDepth + 1
                         | "<" -> angleDepth <- angleDepth + 1
-                        | ">" when angleDepth > 0 -> angleDepth <- angleDepth - 1
+                        | _ when
+                            token.Kind = Operator
+                            && token.Text.StartsWith(">", StringComparison.Ordinal)
+                            && angleDepth > 0
+                            ->
+                            angleDepth <- max 0 (angleDepth - leadingCount token.Text '>')
                         | _ when angleDepth > 0 -> ()
                         | _ when inType ->
                             if

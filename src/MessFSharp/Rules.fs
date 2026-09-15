@@ -15,6 +15,14 @@ open Domain
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "CyclomaticComplexity")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "CountInLoopExpression")>]
 module Rules =
+    let private leadingCount (text: string) (character: char) =
+        let mutable count = 0
+
+        while count < text.Length && text[count] = character do
+            count <- count + 1
+
+        count
+
     let private ruleUri (name: string) =
         Some(sprintf "https://github.com/quality-gates/messfsharp#%s" (name.ToLowerInvariant()))
 
@@ -483,8 +491,11 @@ module Rules =
             while k < tokens.Length && angleDepth > 0 do
                 if tokens[k].Kind = Operator && tokens[k].Text = "<" then
                     angleDepth <- angleDepth + 1
-                elif tokens[k].Kind = Operator && tokens[k].Text = ">" then
-                    angleDepth <- angleDepth - 1
+                elif
+                    tokens[k].Kind = Operator
+                    && tokens[k].Text.StartsWith(">", StringComparison.Ordinal)
+                then
+                    angleDepth <- angleDepth - leadingCount tokens[k].Text '>'
 
                 k <- k + 1
 
@@ -584,8 +595,11 @@ module Rules =
                     while k < tokens.Length && angleDepth > 0 do
                         if tokens[k].Kind = Operator && tokens[k].Text = "<" then
                             angleDepth <- angleDepth + 1
-                        elif tokens[k].Kind = Operator && tokens[k].Text = ">" then
-                            angleDepth <- angleDepth - 1
+                        elif
+                            tokens[k].Kind = Operator
+                            && tokens[k].Text.StartsWith(">", StringComparison.Ordinal)
+                        then
+                            angleDepth <- angleDepth - leadingCount tokens[k].Text '>'
 
                         k <- k + 1
 
@@ -1455,14 +1469,6 @@ module Rules =
     let private opensBracket (text: string) = text = "(" || text = "[" || text = "{"
 
     let private closesBracket (text: string) = text = ")" || text = "]" || text = "}"
-
-    let private leadingCount (text: string) (character: char) =
-        let mutable count = 0
-
-        while count < text.Length && text[count] = character do
-            count <- count + 1
-
-        count
 
     let private isTypeAnnotation (token: SyntaxToken) =
         token.Kind = Operator

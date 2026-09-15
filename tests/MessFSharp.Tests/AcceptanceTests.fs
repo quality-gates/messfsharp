@@ -266,6 +266,27 @@ module AcceptanceTests =
         )
 
     [<Fact>]
+    let ``packaged executable detects duplicate keys in nested generic Dictionary constructors`` () =
+        let source = fixture "issue-126-compound-angle-brackets.fs"
+
+        let result =
+            PackagedTool.run [ source; "text"; "cleancode"; "--only"; "DuplicatedArrayKey" ]
+
+        Assert.Equal(2, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        Assert.Equal(
+            String.concat
+                newline
+                [ relativeFixture "issue-126-compound-angle-brackets.fs"
+                  + ":6:DuplicatedArrayKey: A map or dictionary construction contains a duplicate key."
+                  relativeFixture "issue-126-compound-angle-brackets.fs"
+                  + ":11:DuplicatedArrayKey: A map or dictionary construction contains a duplicate key." ]
+            + newline,
+            result.StandardOutput
+        )
+
+    [<Fact>]
     let ``member-local bindings do not count as fields or unused private fields`` () =
         let result =
             PackagedTool.run
