@@ -3077,13 +3077,12 @@ let compute () =
 
         let backtickParameters =
             analyzed.Declarations
-            |> List.filter (fun declaration -> declaration.Kind = Parameter && declaration.Parent = Some "calculate something complex")
+            |> List.filter (fun declaration ->
+                declaration.Kind = Parameter
+                && declaration.Parent = Some "calculate something complex")
             |> List.map (fun declaration -> declaration.Name)
 
-        Assert.Equal<string list>(
-            [ "x" ],
-            backtickParameters
-        )
+        Assert.Equal<string list>([ "x" ], backtickParameters)
 
         let complexityOf (declaration: Declaration) =
             Map.find (declaration.Name, declaration.Location.StartLine) analyzed.ComplexityByDeclaration
@@ -3102,7 +3101,8 @@ let compute () =
 
         Assert.Empty(result.Report.Errors)
 
-        let sourceLines = File.ReadAllLines(fixture "issue-125-double-backtick-function-binding.fs")
+        let sourceLines =
+            File.ReadAllLines(fixture "issue-125-double-backtick-function-binding.fs")
 
         let reported ruleName =
             result.Report.Violations
@@ -3111,7 +3111,8 @@ let compute () =
             |> List.sort
 
         Assert.Equal<string list>(
-            [ "let ``calculate something complex`` x ="; "let calculateSomethingComplex2 x =" ],
+            [ "let ``calculate something complex`` x ="
+              "let calculateSomethingComplex2 x =" ],
             reported "CyclomaticComplexity"
         )
 
@@ -3121,4 +3122,7 @@ let compute () =
             reported "ExcessiveParameterList"
         )
 
-        Assert.Equal<string list>([ "let ``validate user login`` (isEnabled: bool) = if isEnabled then 1 else 0" ], reported "BooleanArgumentFlag")
+        Assert.Equal<string list>(
+            [ "let ``validate user login`` (isEnabled: bool) = if isEnabled then 1 else 0" ],
+            reported "BooleanArgumentFlag"
+        )
