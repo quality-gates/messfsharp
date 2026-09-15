@@ -445,6 +445,7 @@ module Model =
             let mutable bracketDepth = 0
             let mutable braceDepth = 0
             let mutable angleDepth = 0
+            let mutable parameterTypeDepth: (int * int * int) option = None
             let mutable doneWithParameters = false
             let mutable afterAccessorMarker = false
 
@@ -464,6 +465,27 @@ module Model =
 
             let isTopLevel () =
                 parenthesisDepth = 0 && bracketDepth = 0 && braceDepth = 0
+
+            let startTypeAnnotation () =
+                if not inType then
+                    inType <- true
+
+                    if isTopLevel () then
+                        parameterTypeDepth <- None
+                    else
+                        parameterTypeDepth <- Some(parenthesisDepth, bracketDepth, braceDepth)
+
+            let finishTypeAnnotation () =
+                inType <- false
+                parameterTypeDepth <- None
+
+            let typeAnnotationEndsAtCurrentDepth () =
+                match parameterTypeDepth with
+                | Some(typeParenthesisDepth, typeBracketDepth, typeBraceDepth) ->
+                    parenthesisDepth < typeParenthesisDepth
+                    || bracketDepth < typeBracketDepth
+                    || braceDepth < typeBraceDepth
+                | None -> false
 
             let ignoredIdentifier value =
                 Set.contains
@@ -509,36 +531,39 @@ module Model =
                             flush ()
                             doneWithParameters <- true
                         | "with" when isTopLevel () -> afterAccessorMarker <- true
-                        | ":" when not (parenthesisDepth = 0 && bracketDepth = 0 && braceDepth = 0) -> inType <- true
+                        | ":" when not (parenthesisDepth = 0 && bracketDepth = 0 && braceDepth = 0) ->
+                            startTypeAnnotation ()
                         | ":" ->
-                            flush ()
-                            inType <- true
+                            if not inType then
+                                flush ()
+
+                            startTypeAnnotation ()
                         | "," when inType && angleDepth = 0 ->
-                            inType <- false
+                            finishTypeAnnotation ()
                             flush ()
                         | ("," | ";") when not inType -> flush ()
                         | ")" ->
                             if parenthesisDepth > 0 then
                                 parenthesisDepth <- parenthesisDepth - 1
 
-                            if inType then
-                                inType <- false
+                            if inType && typeAnnotationEndsAtCurrentDepth () then
+                                finishTypeAnnotation ()
 
                             flush ()
                         | "]" ->
                             if bracketDepth > 0 then
                                 bracketDepth <- bracketDepth - 1
 
-                            if inType then
-                                inType <- false
+                            if inType && typeAnnotationEndsAtCurrentDepth () then
+                                finishTypeAnnotation ()
 
                             flush ()
                         | "}" ->
                             if braceDepth > 0 then
                                 braceDepth <- braceDepth - 1
 
-                            if inType then
-                                inType <- false
+                            if inType && typeAnnotationEndsAtCurrentDepth () then
+                                finishTypeAnnotation ()
 
                             flush ()
                         | "(" ->

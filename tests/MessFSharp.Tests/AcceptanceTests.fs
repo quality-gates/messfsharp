@@ -283,6 +283,28 @@ module AcceptanceTests =
         Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
 
     [<Fact>]
+    let ``parenthesized binding type annotations do not create formal parameters`` () =
+        let result =
+            PackagedTool.run
+                [ fixture "issue-124-parenthesized-type-annotations.fs"
+                  "json"
+                  "opinionated"
+                  "--only"
+                  "UnusedFormalParameter" ]
+
+        Assert.Equal(2, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        use document = JsonDocument.Parse(result.StandardOutput)
+        let violations = document.RootElement.GetProperty("violations")
+        Assert.Equal(1, violations.GetArrayLength())
+
+        let violation = violations.EnumerateArray() |> Seq.head
+        Assert.Equal("UnusedFormalParameter", violation.GetProperty("rule").GetString())
+        Assert.Equal("Formal parameter 'key' is never used.", violation.GetProperty("description").GetString())
+        Assert.Equal(5, violation.GetProperty("startLine").GetInt32())
+
+    [<Fact>]
     let ``nested local functions do not count as type or module methods`` () =
         let result =
             PackagedTool.run
