@@ -3,6 +3,7 @@
 ## 0.1.6
 
 - Emit relative paths in GitHub, GitLab, SARIF, and Checkstyle reports (#113).
+- Classify double-backtick function bindings as functions and count their parameters (#125).
 - Classify point-free `function` bindings as functions (#111).
 - Create parent directories when writing reports with `--reportfile` (#112).
 - Count `elif` branches in cyclomatic, NPath, and class complexity metrics (#110).

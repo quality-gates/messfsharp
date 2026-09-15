@@ -3058,3 +3058,71 @@ let compute () =
 
         Assert.Equal<string list>([ "let pf =" ], reported "ShortMethodName")
         Assert.Empty(reported "ShortVariable")
+
+    [<Fact>]
+    let ``double backtick function binding is classified and measured like its plain equivalent`` () =
+        let analyzed =
+            analyzeSource (File.ReadAllText(fixture "issue-125-double-backtick-function-binding.fs"))
+
+        let declaration name =
+            analyzed.Declarations |> List.find (fun declaration -> declaration.Name = name)
+
+        let backtick = declaration "calculate something complex"
+        let plain = declaration "calculateSomethingComplex2"
+
+        Assert.Equal(Function, backtick.Kind)
+        Assert.True(backtick.IsFunction)
+        Assert.Equal(1, backtick.ParameterCount)
+        Assert.Equal(Function, plain.Kind)
+
+        let backtickParameters =
+            analyzed.Declarations
+            |> List.filter (fun declaration ->
+                declaration.Kind = Parameter
+                && declaration.Parent = Some "calculate something complex")
+            |> List.map (fun declaration -> declaration.Name)
+
+        Assert.Equal<string list>([ "x" ], backtickParameters)
+
+        let complexityOf (declaration: Declaration) =
+            Map.find (declaration.Name, declaration.Location.StartLine) analyzed.ComplexityByDeclaration
+
+        Assert.Equal(complexityOf plain, complexityOf backtick)
+
+    [<Fact>]
+    let ``double backtick function binding reports function rules instead of bypassing them`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                { Defaults.analysisOptions with
+                    Paths = [ fixture "issue-125-double-backtick-function-binding.fs" ]
+                    Rulesets = [ "codesize"; "cleancode" ]
+                    Format = Json }
+
+        Assert.Empty(result.Report.Errors)
+
+        let sourceLines =
+            File.ReadAllLines(fixture "issue-125-double-backtick-function-binding.fs")
+
+        let reported ruleName =
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = ruleName)
+            |> List.map (fun violation -> sourceLines[violation.Location.StartLine - 1].Trim())
+            |> List.sort
+
+        Assert.Equal<string list>(
+            [ "let ``calculate something complex`` x ="
+              "let calculateSomethingComplex2 x =" ],
+            reported "CyclomaticComplexity"
+        )
+
+        Assert.Equal<string list>(
+            [ "let ``too many params function`` a b c d e f g h i j k l m n o = a + b"
+              "let tooManyParams2 a b c d e f g h i j k l m n o = a + b" ],
+            reported "ExcessiveParameterList"
+        )
+
+        Assert.Equal<string list>(
+            [ "let ``validate user login`` (isEnabled: bool) = if isEnabled then 1 else 0" ],
+            reported "BooleanArgumentFlag"
+        )
