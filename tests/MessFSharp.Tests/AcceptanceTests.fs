@@ -281,7 +281,7 @@ module AcceptanceTests =
                 [ relativeFixture "issue-126-compound-angle-brackets.fs"
                   + ":6:DuplicatedArrayKey: A map or dictionary construction contains a duplicate key."
                   relativeFixture "issue-126-compound-angle-brackets.fs"
-                  + ":12:DuplicatedArrayKey: A map or dictionary construction contains a duplicate key." ]
+                  + ":11:DuplicatedArrayKey: A map or dictionary construction contains a duplicate key." ]
             + newline,
             result.StandardOutput
         )
