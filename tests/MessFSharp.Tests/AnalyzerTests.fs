@@ -290,6 +290,32 @@ let readHead () =
         Assert.Empty(formalParameterRule.Check analyzed parameterSelection)
 
     [<Fact>]
+    let ``parenthesized binding type annotations do not create formal parameters`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let config: (string * int) option = None
+
+let lookup (key: string) : (string * int) option = None
+"""
+
+        let declaration name =
+            analyzed.Declarations |> List.find (fun item -> item.Name = name)
+
+        let config = declaration "config"
+        let lookup = declaration "lookup"
+
+        Assert.Equal(Value, config.Kind)
+        Assert.False(config.IsFunction)
+        Assert.Equal(0, config.ParameterCount)
+        Assert.Equal(Function, lookup.Kind)
+        Assert.True(lookup.IsFunction)
+        Assert.Equal(1, lookup.ParameterCount)
+        Assert.Contains(analyzed.Declarations, fun item -> item.Kind = Parameter && item.Name = "key")
+        Assert.DoesNotContain(analyzed.Declarations, fun item -> item.Kind = Parameter && item.Name = "option")
+
+    [<Fact>]
     let ``active pattern inputs are not reported as unused formal parameters`` () =
         let analyzed =
             analyzeSource
