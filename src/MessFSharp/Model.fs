@@ -417,7 +417,9 @@ module Model =
             let tupleParameters = firstParameterGroup.Split('*').Length
             max arrowCount tupleParameters
 
-    let private parseParameterInfos (text: string) declarationName =
+    let private parseParameterInfos (text: string) (rawDeclarationName: string) =
+        let declarationName = rawDeclarationName.Trim('`')
+
         let sourceForDeclaration =
             { FullPath = "<declaration>"
               Kind = Implementation
