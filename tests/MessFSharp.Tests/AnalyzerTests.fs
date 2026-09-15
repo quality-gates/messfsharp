@@ -316,6 +316,32 @@ let lookup (key: string) : (string * int) option = None
         Assert.DoesNotContain(analyzed.Declarations, fun item -> item.Kind = Parameter && item.Name = "option")
 
     [<Fact>]
+    let ``nested generic parameter annotations preserve following parameters`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let processItems (items: List<seq<int>>) unused = items.Count
+let deeplyNested (items: List<seq<Set<int>>>) unused = 0
+"""
+
+        let declaration name =
+            analyzed.Declarations |> List.find (fun item -> item.Name = name)
+
+        for name in [ "processItems"; "deeplyNested" ] do
+            let functionDeclaration = declaration name
+            Assert.Equal(Function, functionDeclaration.Kind)
+            Assert.Equal(2, functionDeclaration.ParameterCount)
+
+        Assert.Contains(
+            analyzed.Declarations,
+            fun item ->
+                item.Kind = Parameter
+                && item.Parent = Some "processItems"
+                && item.Name = "unused"
+        )
+
+    [<Fact>]
     let ``active pattern inputs are not reported as unused formal parameters`` () =
         let analyzed =
             analyzeSource
