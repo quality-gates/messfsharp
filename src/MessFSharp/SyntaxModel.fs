@@ -72,6 +72,12 @@ module SyntaxModel =
     let rec private parameterPatterns pattern =
         match pattern with
         | SynPat.Named(SynIdent(identifier, _), _, _, patternRange) -> [ identifier.idText, patternRange ]
+        | SynPat.LongIdent(longDotId = longIdentifier; argPats = SynArgPats.Pats []; range = patternRange) ->
+            longIdentifier.LongIdent
+            |> List.tryLast
+            |> Option.map (fun identifier -> [ identifier.idText, patternRange ])
+            |> Option.defaultValue []
+        | SynPat.LongIdent(argPats = SynArgPats.Pats nested) -> nested |> List.collect parameterPatterns
         | SynPat.Tuple(elementPats = elements) -> elements |> List.collect parameterPatterns
         | SynPat.Record(fieldPats = fields) ->
             fields
