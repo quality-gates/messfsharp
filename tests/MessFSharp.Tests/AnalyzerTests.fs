@@ -28,6 +28,34 @@ module AnalyzerTests =
         | Error errors -> failwithf "Expected valid F# source, got %A" errors
 
     [<Fact>]
+    let ``prefix generic parameters and inline attributes are registered as type declarations`` () =
+        let analyzed =
+            analyzeSource
+                """module ReproPrefixType
+
+type 'a C =
+    { Item: 'a }
+
+type [<NoEquality>] F =
+    { X: int }
+"""
+
+        Assert.Contains(analyzed.Declarations, fun d -> d.Kind = Type && d.Name = "C")
+        Assert.Contains(analyzed.Declarations, fun d -> d.Kind = Type && d.Name = "F")
+
+        let c = analyzed.Declarations |> List.find (fun d -> d.Kind = Type && d.Name = "C")
+        let f = analyzed.Declarations |> List.find (fun d -> d.Kind = Type && d.Name = "F")
+        Assert.True(c.IsRecord)
+        Assert.Equal(RecordType, c.TypeShape)
+        Assert.True(f.IsRecord)
+        Assert.Equal(RecordType, f.TypeShape)
+
+        Assert.Contains(
+            analyzed.Declarations,
+            fun d -> d.Kind = Field && d.Name = "Item" && d.Parent = Some "C"
+        )
+
+    [<Fact>]
     let ``compiler syntax supplies data types interfaces scopes expressions and references`` () =
         let analyzed =
             analyzeSource

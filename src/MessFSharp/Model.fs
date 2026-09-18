@@ -40,7 +40,7 @@ module Model =
 
     let private typePattern =
         declarationRegex
-            "^\\s*type\\s+(?:(?<accessibility>private|internal|public)\\s+|(?:abstract|sealed|rec)\\s+)*(?<name>``[^`]+``|[A-Za-z_][\\w'.]*)"
+            "^\\s*type\\s+(?:(?<accessibility>private|internal|public)\\s+|(?:abstract|sealed|rec)\\s+|\\[<[^>]+>\\]\\s+)*(?:(?:'[A-Za-z_][\\w']*|\\([^)]*\\))\\s+)?(?<name>``[^`]+``|[A-Za-z_][\\w'.]*)"
 
     let private signatureValuePattern =
         declarationRegex "^\\s*val\\s+(``[^`]+``|[A-Za-z_][\\w']*)\\s*:"
