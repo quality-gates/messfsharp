@@ -2165,6 +2165,41 @@ let bothLines = 3
         Assert.True(bothLines.IsLiteral)
 
     [<Fact>]
+    let ``suppress message with arguments spanning multiple lines suppresses rule violation`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMultilineAttributeApplication
+open System.Diagnostics.CodeAnalysis
+
+[<SuppressMessage(
+    "messfsharp",
+    "ShortVariable")>]
+let ab = 1
+"""
+
+        let ab =
+            analyzed.Declarations |> List.find (fun declaration -> declaration.Name = "ab")
+
+        Assert.Equal<string>(Set.ofList [ "ShortVariable" ], ab.SuppressedRules)
+
+    [<Fact>]
+    let ``literal attribute spanning multiple lines is detected`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMultilineLiteralAttribute
+[<System.Diagnostics.CodeAnalysis.SuppressMessage(
+    "messfsharp",
+    "ShortVariable")>]
+[<Literal>]
+let ab = 1
+"""
+
+        let ab =
+            analyzed.Declarations |> List.find (fun declaration -> declaration.Name = "ab")
+
+        Assert.True(ab.IsLiteral)
+
+    [<Fact>]
     let ``suppress message on let binding with preceding attribute suppresses rule violation`` () =
         let source =
             """module TestSuppression

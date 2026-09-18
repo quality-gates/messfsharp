@@ -115,21 +115,51 @@ module Model =
     let private attributePrefixPattern =
         declarationRegex "^\\s*(?:\\[<[^[\\]]*>\\]\\s*)+"
 
+    let private countOccurrences (haystack: string) (needle: string) =
+        let mutable count = 0
+        let mutable searchFrom = 0
+
+        let mutable position =
+            haystack.IndexOf(needle, searchFrom, StringComparison.Ordinal)
+
+        while position >= 0 do
+            count <- count + 1
+            searchFrom <- position + needle.Length
+            position <- haystack.IndexOf(needle, searchFrom, StringComparison.Ordinal)
+
+        count
+
     let private precedingAttributes (lines: string array) lineNumber =
         let collected = ResizeArray<string>()
         let mutable index = lineNumber - 2
         let mutable keepGoing = true
+        // Number of `>]` closers seen so far, scanning upward, that have not yet
+        // been matched by a `[<` opener: while positive, we're inside the body
+        // of a multiline attribute application and must keep consuming lines.
+        let mutable unmatchedClosers = 0
 
         while index >= 0 && keepGoing do
-            let text = lines[index].Trim()
+            let line = lines[index]
+            let text = line.Trim()
+            let opens = countOccurrences line "[<"
+            let closes = countOccurrences line ">]"
 
-            if text.StartsWith("[<", StringComparison.Ordinal) then
-                collected.Add(lines[index])
+            if unmatchedClosers > 0 then
+                collected.Add(line)
+                unmatchedClosers <- max 0 (unmatchedClosers + closes - opens)
+                index <- index - 1
+            elif text.StartsWith("[<", StringComparison.Ordinal) then
+                collected.Add(line)
+                unmatchedClosers <- max 0 (closes - opens)
                 index <- index - 1
             elif
                 String.IsNullOrWhiteSpace text
                 || text.StartsWith("//", StringComparison.Ordinal)
             then
+                index <- index - 1
+            elif closes > opens then
+                collected.Add(line)
+                unmatchedClosers <- closes - opens
                 index <- index - 1
             else
                 keepGoing <- false
