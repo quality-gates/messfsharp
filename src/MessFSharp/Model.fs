@@ -1401,10 +1401,7 @@ module Model =
 
                                             let accessibility =
                                                 let accessibilityMatch =
-                                                    Regex.Match(
-                                                        line,
-                                                        "^\\s*and\\s+(private|internal|public)\\s+"
-                                                    )
+                                                    Regex.Match(line, "^\\s*and\\s+(private|internal|public)\\s+")
 
                                                 if accessibilityMatch.Success then
                                                     accessibilityMatch.Groups[1].Value
@@ -1443,13 +1440,15 @@ module Model =
 
                                             let parameterCount = parseParameterInfos declarationText name |> List.length
 
-                                            let parent = nearestDeclarationParent (declarations |> Seq.toList) lineNumber
+                                            let parent =
+                                                nearestDeclarationParent (declarations |> Seq.toList) lineNumber
 
                                             let moduleLevel =
                                                 match parent with
                                                 | Some parent when parent.Kind = Type -> false
                                                 | _ ->
-                                                    enclosingBody (declarations |> Seq.toList) lineNumber |> Option.isNone
+                                                    enclosingBody (declarations |> Seq.toList) lineNumber
+                                                    |> Option.isNone
 
                                             declarations.Add(
                                                 makeDeclaration
