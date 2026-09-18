@@ -3254,3 +3254,61 @@ let compute () =
 
         Assert.Contains("ShortClassName", names)
         Assert.DoesNotContain("ShortMethodName", names)
+
+    [<Fact>]
+    let ``class let-bound fields are not duplicated as value declarations and do not trigger UnusedLocalVariable`` () =
+        let analyzed = analyzeSource (File.ReadAllText(fixture "issue-134-class-fields.fs"))
+
+        let declarationsForField =
+            analyzed.Declarations |> List.filter (fun d -> d.Name = "unusedField")
+
+        Assert.Equal(1, declarationsForField.Length)
+        let decl = declarationsForField.Head
+        Assert.Equal(Field, decl.Kind)
+        Assert.Equal(Some "Service", decl.Parent)
+
+        let selectionLocal =
+            { Name = "UnusedLocalVariable"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let ruleLocal = Rules.all |> List.find (fun r -> r.Name = "UnusedLocalVariable")
+        let violationsLocal = ruleLocal.Check analyzed selectionLocal
+        Assert.Empty(violationsLocal)
+
+        let selectionField =
+            { Name = "UnusedPrivateField"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let ruleField = Rules.all |> List.find (fun r -> r.Name = "UnusedPrivateField")
+        let violationsField = ruleField.Check analyzed selectionField
+        Assert.Single(violationsField) |> ignore
+
+        let result =
+            Engine.run
+                "0.1.0"
+                { Defaults.analysisOptions with
+                    Paths = [ fixture "issue-134-class-fields.fs" ]
+                    Rulesets = [ "unusedcode" ]
+                    Format = Json }
+
+        let ruleNames = result.Report.Violations |> List.map (fun v -> v.RuleName)
+        Assert.Contains("UnusedPrivateField", ruleNames)
+        Assert.DoesNotContain("UnusedLocalVariable", ruleNames)
+
+    [<Fact>]
+    let ``static let-bound class fields are not duplicated as value declarations`` () =
+        let analyzed = analyzeSource (File.ReadAllText(fixture "static-field.fs"))
+
+        let declarationsForCount =
+            analyzed.Declarations |> List.filter (fun d -> d.Name = "count")
+
+        Assert.Equal(1, declarationsForCount.Length)
+        let decl = declarationsForCount.Head
+        Assert.Equal(Field, decl.Kind)
+        Assert.True(decl.IsStatic)
+        Assert.True(decl.IsMutable)
+        Assert.Equal(Some "Counter", decl.Parent)
