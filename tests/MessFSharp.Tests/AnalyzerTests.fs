@@ -371,8 +371,7 @@ type Calculator() =
     member this.Add Arg1 Arg2 = Arg2
 """
 
-        let rule =
-            Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
+        let rule = Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
 
         let selection =
             { Name = "UnusedFormalParameter"
