@@ -1387,45 +1387,95 @@ module Model =
                                 if andMatch.Success && not (activePatternBindingLines.Contains lineNumber) then
                                     match firstName andMatch.Groups[2].Value with
                                     | Some name ->
-                                        let endLine = scopeEnd source lineNumber indent Function
-                                        let declarationText = sourceText source lineNumber endLine
+                                        let isAndType =
+                                            facts.Declarations
+                                            |> List.exists (fun fact ->
+                                                fact.Location.StartLine = lineNumber
+                                                && match fact.Kind with
+                                                   | SyntaxModel.TypeFact _ -> true
+                                                   | _ -> false)
 
-                                        let parameterCount = parseParameterInfos declarationText name |> List.length
+                                        if isAndType then
+                                            let endLine = scopeEnd source lineNumber indent Type
+                                            let declarationText = sourceText source lineNumber endLine
 
-                                        let parent = nearestDeclarationParent (declarations |> Seq.toList) lineNumber
+                                            let accessibility =
+                                                let accessibilityMatch =
+                                                    Regex.Match(line, "^\\s*and\\s+(private|internal|public)\\s+")
 
-                                        let moduleLevel =
-                                            match parent with
-                                            | Some parent when parent.Kind = Type -> false
-                                            | _ ->
-                                                enclosingBody (declarations |> Seq.toList) lineNumber |> Option.isNone
+                                                if accessibilityMatch.Success then
+                                                    accessibilityMatch.Groups[1].Value
+                                                else
+                                                    ""
 
-                                        declarations.Add(
-                                            makeDeclaration
-                                                source
-                                                name
-                                                Function
-                                                lineNumber
-                                                (indent + 1)
-                                                (parent |> Option.map (fun item -> item.Name))
-                                                (parent |> Option.map (fun item -> item.Kind))
-                                                (parent |> Option.map (fun item -> item.Location.StartLine))
-                                                ""
-                                                false
-                                                false
-                                                false
-                                                false
-                                                false
-                                                false
-                                                true
-                                                moduleLevel
-                                                parameterCount
-                                                lineNumber
-                                                endLine
-                                                lineNumber
-                                                endLine
-                                                declarationText
-                                        )
+                                            declarations.Add(
+                                                makeDeclaration
+                                                    source
+                                                    name
+                                                    Type
+                                                    lineNumber
+                                                    (indent + 1)
+                                                    None
+                                                    None
+                                                    None
+                                                    accessibility
+                                                    false
+                                                    false
+                                                    false
+                                                    false
+                                                    false
+                                                    false
+                                                    false
+                                                    true
+                                                    0
+                                                    lineNumber
+                                                    endLine
+                                                    lineNumber
+                                                    endLine
+                                                    declarationText
+                                            )
+                                        else
+                                            let endLine = scopeEnd source lineNumber indent Function
+                                            let declarationText = sourceText source lineNumber endLine
+
+                                            let parameterCount = parseParameterInfos declarationText name |> List.length
+
+                                            let parent =
+                                                nearestDeclarationParent (declarations |> Seq.toList) lineNumber
+
+                                            let moduleLevel =
+                                                match parent with
+                                                | Some parent when parent.Kind = Type -> false
+                                                | _ ->
+                                                    enclosingBody (declarations |> Seq.toList) lineNumber
+                                                    |> Option.isNone
+
+                                            declarations.Add(
+                                                makeDeclaration
+                                                    source
+                                                    name
+                                                    Function
+                                                    lineNumber
+                                                    (indent + 1)
+                                                    (parent |> Option.map (fun item -> item.Name))
+                                                    (parent |> Option.map (fun item -> item.Kind))
+                                                    (parent |> Option.map (fun item -> item.Location.StartLine))
+                                                    ""
+                                                    false
+                                                    false
+                                                    false
+                                                    false
+                                                    false
+                                                    false
+                                                    true
+                                                    moduleLevel
+                                                    parameterCount
+                                                    lineNumber
+                                                    endLine
+                                                    lineNumber
+                                                    endLine
+                                                    declarationText
+                                            )
                                     | None -> ()
 
         declarations |> Seq.toList

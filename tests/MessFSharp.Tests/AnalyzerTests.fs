@@ -3152,3 +3152,45 @@ let compute () =
             [ "let ``validate user login`` (isEnabled: bool) = if isEnabled then 1 else 0" ],
             reported "BooleanArgumentFlag"
         )
+
+    [<Fact>]
+    let ``mutually recursive and type declaration is classified as a record type, not a function`` () =
+        let analyzed =
+            analyzeSource (File.ReadAllText(fixture "issue-130-mutually-recursive-and-types.fs"))
+
+        let declaration name =
+            analyzed.Declarations |> List.find (fun declaration -> declaration.Name = name)
+
+        let node = declaration "Node"
+        let andType = declaration "T"
+
+        Assert.Equal(Type, node.Kind)
+        Assert.Equal(Type, andType.Kind)
+        Assert.False(andType.IsFunction)
+        Assert.True(andType.IsRecord)
+
+        let fieldNames =
+            analyzed.Declarations
+            |> List.filter (fun declaration -> declaration.Kind = Field && declaration.Parent = Some "T")
+            |> List.map (fun declaration -> declaration.Name)
+            |> List.sort
+
+        Assert.Equal<string list>([ "Left"; "Right"; "Root" ], fieldNames)
+
+    [<Fact>]
+    let ``mutually recursive and type declaration reports type rules instead of method rules`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                { Defaults.analysisOptions with
+                    Paths = [ fixture "issue-130-mutually-recursive-and-types.fs" ]
+                    Rulesets = [ "naming" ]
+                    Format = Json }
+
+        Assert.Empty(result.Report.Errors)
+
+        let names =
+            result.Report.Violations |> List.map (fun violation -> violation.RuleName)
+
+        Assert.Contains("ShortClassName", names)
+        Assert.DoesNotContain("ShortMethodName", names)
