@@ -616,7 +616,8 @@ module Model =
                                 afterAccessorMarker <- false
                             elif not (ignoredIdentifier value) && value <> "_" then
                                 match currentName with
-                                | Some(prev, _, _) when prev.Length > 0 && Char.IsUpper(prev[0]) -> ()
+                                | Some(prev, _, _) when not (isTopLevel ()) && prev.Length > 0 && Char.IsUpper(prev[0]) ->
+                                    ()
                                 | Some _ -> flush ()
                                 | None -> ()
 

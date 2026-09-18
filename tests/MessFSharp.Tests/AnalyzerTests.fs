@@ -342,6 +342,64 @@ let deeplyNested (items: List<seq<Set<int>>>) unused = 0
         )
 
     [<Fact>]
+    let ``sequential uppercase parameters are all preserved instead of overwriting each other`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let f X Y Z = X
+"""
+
+        let functionDeclaration =
+            analyzed.Declarations |> List.find (fun item -> item.Name = "f")
+
+        Assert.Equal(3, functionDeclaration.ParameterCount)
+
+        for name in [ "X"; "Y"; "Z" ] do
+            Assert.Contains(
+                analyzed.Declarations,
+                fun item -> item.Kind = Parameter && item.Parent = Some "f" && item.Name = name
+            )
+
+    [<Fact>]
+    let ``sequential uppercase member parameters are all preserved instead of overwriting each other`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+type Calculator() =
+    member this.Add Arg1 Arg2 = Arg2
+"""
+
+        let rule = Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
+
+        let selection =
+            { Name = "UnusedFormalParameter"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let violations = rule.Check analyzed selection
+
+        Assert.Contains(violations, fun violation -> violation.Description.Contains("Arg1"))
+
+    [<Fact>]
+    let ``discriminated union unwrap pattern parameter does not create a spurious constructor parameter`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let unwrap (Some x) = x
+"""
+
+        Assert.DoesNotContain(analyzed.Declarations, fun item -> item.Kind = Parameter && item.Name = "Some")
+
+        Assert.Contains(
+            analyzed.Declarations,
+            fun item -> item.Kind = Parameter && item.Parent = Some "unwrap" && item.Name = "x"
+        )
+
+    [<Fact>]
     let ``active pattern inputs are not reported as unused formal parameters`` () =
         let analyzed =
             analyzeSource
