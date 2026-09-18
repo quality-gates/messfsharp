@@ -50,10 +50,7 @@ type [<NoEquality>] F =
         Assert.True(f.IsRecord)
         Assert.Equal(RecordType, f.TypeShape)
 
-        Assert.Contains(
-            analyzed.Declarations,
-            fun d -> d.Kind = Field && d.Name = "Item" && d.Parent = Some "C"
-        )
+        Assert.Contains(analyzed.Declarations, fun d -> d.Kind = Field && d.Name = "Item" && d.Parent = Some "C")
 
     [<Fact>]
     let ``compiler syntax supplies data types interfaces scopes expressions and references`` () =
