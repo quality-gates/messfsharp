@@ -1668,7 +1668,7 @@ module Model =
                         let isStatic = not typeDeclaration.IsRecord && fieldMatch.Groups[1].Value = "static"
                         let accessibility = if typeDeclaration.IsRecord then "" else "private"
 
-                        result.Add(
+                        let fieldDeclaration =
                             makeDeclaration
                                 source
                                 name
@@ -1693,7 +1693,24 @@ module Model =
                                 lineNumber
                                 lineNumber
                                 (line.Trim())
-                        )
+
+                        let isMatchingDeclaration (declaration: Declaration) =
+                            declaration.Location.StartLine = lineNumber
+                            && declaration.Name = name
+                            && (declaration.Parent = Some typeDeclaration.Name || declaration.Parent = None)
+                            && (declaration.Kind = Value || declaration.Kind = Function)
+
+                        let existingIndex = result.FindIndex(isMatchingDeclaration)
+
+                        if existingIndex >= 0 then
+                            result[existingIndex] <- fieldDeclaration
+                            let mutable nextIndex = result.FindIndex(isMatchingDeclaration)
+
+                            while nextIndex >= 0 do
+                                result.RemoveAt(nextIndex)
+                                nextIndex <- result.FindIndex(isMatchingDeclaration)
+                        else
+                            result.Add(fieldDeclaration)
 
         result |> Seq.toList
 
