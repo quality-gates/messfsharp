@@ -118,7 +118,9 @@ module Model =
     let private countOccurrences (haystack: string) (needle: string) =
         let mutable count = 0
         let mutable searchFrom = 0
-        let mutable position = haystack.IndexOf(needle, searchFrom, StringComparison.Ordinal)
+
+        let mutable position =
+            haystack.IndexOf(needle, searchFrom, StringComparison.Ordinal)
 
         while position >= 0 do
             count <- count + 1
