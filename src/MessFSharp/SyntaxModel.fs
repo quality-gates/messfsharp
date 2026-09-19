@@ -72,6 +72,10 @@ module SyntaxModel =
     let rec private parameterPatterns pattern =
         match pattern with
         | SynPat.Named(SynIdent(identifier, _), _, _, patternRange) -> [ identifier.idText, patternRange ]
+        // An uppercase parameter such as `X` parses as a single-identifier LongIdent with no arguments.
+        | SynPat.LongIdent(
+            longDotId = SynLongIdent(id = [ identifier ]); argPats = SynArgPats.Pats []; range = patternRange) ->
+            [ identifier.idText, patternRange ]
         | SynPat.Tuple(elementPats = elements) -> elements |> List.collect parameterPatterns
         | SynPat.Record(fieldPats = fields) ->
             fields
