@@ -645,8 +645,12 @@ module Model =
                             then
                                 afterAccessorMarker <- false
                             elif not (ignoredIdentifier value) && value <> "_" then
+                                // Inside a pattern such as `(Some value)` an uppercase identifier is a union
+                                // case, so the following identifier replaces it. At top level, juxtaposed
+                                // identifiers are always separate parameters.
                                 match currentName with
-                                | Some(prev, _, _) when prev.Length > 0 && Char.IsUpper(prev[0]) -> ()
+                                | Some(prev, _, _) when not (isTopLevel ()) && prev.Length > 0 && Char.IsUpper(prev[0]) ->
+                                    ()
                                 | Some _ -> flush ()
                                 | None -> ()
 

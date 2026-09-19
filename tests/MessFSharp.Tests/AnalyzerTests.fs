@@ -3312,3 +3312,50 @@ let compute () =
         Assert.True(decl.IsStatic)
         Assert.True(decl.IsMutable)
         Assert.Equal(Some "Counter", decl.Parent)
+
+    [<Fact>]
+    let ``sequential uppercase parameters are all modeled`` () =
+        let analyzed =
+            analyzeSource (File.ReadAllText(fixture "issue-131-uppercase-parameters.fs"))
+
+        let parameterNames parent =
+            analyzed.Declarations
+            |> List.filter (fun d -> d.Kind = Parameter && d.Parent = Some parent)
+            |> List.map (fun d -> d.Name)
+            |> List.distinct
+            |> List.sort
+
+        Assert.Equal<string list>([ "Arg1"; "Arg2" ], parameterNames "add")
+        Assert.Equal<string list>([ "X"; "Y"; "Z" ], parameterNames "f")
+        Assert.Equal<string list>([ "value" ], parameterNames "unwrap")
+        Assert.Equal<string list>([ "Left"; "Right" ], parameterNames "Add")
+
+        let f =
+            analyzed.Declarations |> List.find (fun d -> d.Name = "f" && d.Kind = Function)
+
+        Assert.Equal(3, f.ParameterCount)
+
+    [<Fact>]
+    let ``sequential uppercase parameters are reported by parameter rules`` () =
+        let run ruleset rule =
+            let result =
+                Engine.run
+                    "0.1.0"
+                    { Defaults.analysisOptions with
+                        Paths = [ fixture "issue-131-uppercase-parameters.fs" ]
+                        Rulesets = [ ruleset ]
+                        Only = [ rule ]
+                        Format = Json }
+
+            Assert.Empty(result.Report.Errors)
+            result.Report.Violations |> List.map (fun violation -> violation.Description)
+
+        let unused = run "unusedcode" "UnusedFormalParameter"
+        Assert.Contains("Formal parameter 'Arg1' is never used.", unused)
+        Assert.Contains("Formal parameter 'Y' is never used.", unused)
+        Assert.Contains("Formal parameter 'Left' is never used.", unused)
+
+        let camelCase = run "controversial" "CamelCaseParameterName"
+
+        for name in [ "X"; "Y"; "Z" ] do
+            Assert.Contains($"Parameter name '{name}' should use camelCase.", camelCase)
