@@ -1,7 +1,7 @@
 namespace MessFSharp
 
 open System
-open System.Collections.Generic
+open FSharp.Compiler.Tokenization
 open Domain
 
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "CyclomaticComplexity")>]
@@ -9,585 +9,718 @@ open Domain
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveMethodLength")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "ExcessiveClassComplexity")>]
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "CountInLoopExpression")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "TooManyMethods")>]
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("messfsharp", "GlobalVariable")>]
 module Scanner =
-    let private keywords =
-        set
-            [ "abstract"
-              "and"
-              "as"
-              "assert"
-              "base"
-              "begin"
-              "class"
-              "default"
-              "delegate"
-              "do"
-              "done"
-              "downcast"
-              "downto"
-              "elif"
-              "else"
-              "end"
-              "exception"
-              "extern"
-              "false"
-              "finally"
-              "for"
-              "fun"
-              "function"
-              "if"
-              "in"
-              "inherit"
-              "inline"
-              "interface"
-              "internal"
-              "lazy"
-              "let"
-              "match"
-              "member"
-              "module"
-              "mutable"
-              "namespace"
-              "new"
-              "null"
-              "of"
-              "open"
-              "or"
-              "override"
-              "private"
-              "public"
-              "rec"
-              "return"
-              "static"
-              "struct"
-              "then"
-              "to"
-              "true"
-              "try"
-              "type"
-              "upcast"
-              "use"
-              "val"
-              "void"
-              "when"
-              "while"
-              "with"
-              "yield"
-              "yield!"
-              "use!"
-              "let!"
-              "do!"
-              "return!" ]
+    [<NoEquality; NoComparison>]
+    type private LexedToken =
+        { Line: int
+          LeftColumn: int
+          Text: string
+          Kind: SyntaxTokenKind }
 
-    let private isIdentifierStart character =
-        Char.IsLetter(character) || character = '_' || character = '\''
+    let private operatorCharacters = "!%&*+-./<=>?@^|~:"
 
-    let private isIdentifierPart character =
-        Char.IsLetterOrDigit(character) || character = '_' || character = '\''
+    let private punctuationCharacters = "()[]{};,"
 
     let private isOperatorCharacter (character: char) =
-        "!%&*+-./<=>?@^|~:".IndexOf(character) >= 0
+        operatorCharacters.IndexOf(character) >= 0
 
-    let private addToken (tokens: ResizeArray<SyntaxToken>) kind text line column endLine endColumn =
-        tokens.Add(
-            { Text = text
-              Kind = kind
-              Line = line
-              Column = column
-              EndLine = endLine
-              EndColumn = endColumn }
-        )
+    let private isPunctuationCharacter (character: char) =
+        punctuationCharacters.IndexOf(character) >= 0
 
-    [<NoEquality; NoComparison>]
-    type internal InterpolationState =
-        { Terminator: string
-          IsVerbatim: bool
-          DollarCount: int
-          mutable BraceDepth: int }
+    let private isOperatorText (text: string) =
+        not (String.IsNullOrEmpty text) && text |> Seq.forall isOperatorCharacter
 
-    let private tryScanInterpolationPrefix (text: string) length startIndex =
-        if startIndex >= length then
-            None
-        elif text[startIndex] = '$' then
-            let mutable dc = 0
-
-            while startIndex + dc < length && text[startIndex + dc] = '$' do
-                dc <- dc + 1
-
-            let isVerbatim = startIndex + dc < length && text[startIndex + dc] = '@'
-            let quoteIndex = if isVerbatim then startIndex + dc + 1 else startIndex + dc
-
-            if quoteIndex < length && text[quoteIndex] = '"' then
-                let isTriple =
-                    quoteIndex + 2 < length
-                    && text[quoteIndex + 1] = '"'
-                    && text[quoteIndex + 2] = '"'
-
-                let terminator = if isTriple then "\"\"\"" else "\""
-                let prefixLength = dc + (if isVerbatim then 1 else 0) + terminator.Length
-                Some(terminator, isVerbatim, dc, prefixLength)
-            else
-                None
-        elif text[startIndex] = '@' then
-            let mutable dc = 0
-
-            while startIndex + 1 + dc < length && text[startIndex + 1 + dc] = '$' do
-                dc <- dc + 1
-
-            if dc > 0 then
-                let quoteIndex = startIndex + 1 + dc
-
-                if quoteIndex < length && text[quoteIndex] = '"' then
-                    let isTriple =
-                        quoteIndex + 2 < length
-                        && text[quoteIndex + 1] = '"'
-                        && text[quoteIndex + 2] = '"'
-
-                    let terminator = if isTriple then "\"\"\"" else "\""
-                    let prefixLength = 1 + dc + terminator.Length
-                    Some(terminator, true, dc, prefixLength)
-                else
-                    None
-            else
-                None
+    let private tokenText (line: string) (token: FSharpTokenInfo) =
+        if String.IsNullOrEmpty line then
+            ""
         else
-            None
+            let left = max 0 token.LeftColumn
+            let right = min (line.Length - 1) token.RightColumn
 
-    let private isAsciiHexDigit character =
-        (character >= '0' && character <= '9')
-        || (character >= 'a' && character <= 'f')
-        || (character >= 'A' && character <= 'F')
-
-    let private isAsciiDecimalDigit character = character >= '0' && character <= '9'
-
-    let private isRangeOrMemberAccessDot (text: string) length index =
-        index + 1 < length
-        && (text[index + 1] = '.'
-            || isIdentifierStart text[index + 1]
-            || text[index + 1] = '`')
-
-    let private tryScanCharacterLiteral (text: string) length startIndex =
-        if startIndex >= length || text[startIndex] <> '\'' then
-            None
-        elif startIndex + 1 < length && text[startIndex + 1] = '\\' then
-            if
-                startIndex + 11 < length
-                && text[startIndex + 2] = 'U'
-                && text[startIndex + 11] = '\''
-                && isAsciiHexDigit text[startIndex + 3]
-                && isAsciiHexDigit text[startIndex + 4]
-                && isAsciiHexDigit text[startIndex + 5]
-                && isAsciiHexDigit text[startIndex + 6]
-                && isAsciiHexDigit text[startIndex + 7]
-                && isAsciiHexDigit text[startIndex + 8]
-                && isAsciiHexDigit text[startIndex + 9]
-                && isAsciiHexDigit text[startIndex + 10]
-            then
-                Some 12
-            elif
-                startIndex + 7 < length
-                && text[startIndex + 2] = 'u'
-                && text[startIndex + 7] = '\''
-                && isAsciiHexDigit text[startIndex + 3]
-                && isAsciiHexDigit text[startIndex + 4]
-                && isAsciiHexDigit text[startIndex + 5]
-                && isAsciiHexDigit text[startIndex + 6]
-            then
-                Some 8
-            elif
-                startIndex + 5 < length
-                && text[startIndex + 2] = 'x'
-                && text[startIndex + 5] = '\''
-                && isAsciiHexDigit text[startIndex + 3]
-                && isAsciiHexDigit text[startIndex + 4]
-            then
-                Some 6
-            elif
-                startIndex + 5 < length
-                && text[startIndex + 5] = '\''
-                && isAsciiDecimalDigit text[startIndex + 2]
-                && isAsciiDecimalDigit text[startIndex + 3]
-                && isAsciiDecimalDigit text[startIndex + 4]
-            then
-                Some 6
-            elif
-                startIndex + 3 < length
-                && text[startIndex + 3] = '\''
-                && text[startIndex + 2] <> '\n'
-                && text[startIndex + 2] <> '\r'
-            then
-                Some 4
+            if right < left then
+                ""
             else
-                None
-        elif
-            startIndex + 2 < length
-            && text[startIndex + 2] = '\''
-            && text[startIndex + 1] <> '\\'
-            && text[startIndex + 1] <> '\''
-            && text[startIndex + 1] <> '\n'
-            && text[startIndex + 1] <> '\r'
-        then
-            Some 3
+                line.Substring(left, right - left + 1)
+
+    let private fallbackKind (text: string) =
+        if String.IsNullOrWhiteSpace text then
+            None
+        elif isOperatorText text then
+            Some Operator
+        elif text |> Seq.forall isPunctuationCharacter then
+            Some Punctuation
         else
-            None
+            Some Identifier
 
-    let scan (source: SourceFile) =
-        let tokens = ResizeArray<SyntaxToken>()
-        let text = source.Text
-        let length = text.Length
-        let mutable index = 0
-        let mutable line = 1
-        let mutable column = 1
-        let mutable blockCommentDepth = 0
-        let activeInterpolations = System.Collections.Generic.Stack<InterpolationState>()
-        let mutable interpolationSegmentStart = -1
-        let mutable interpolationSegmentStartLine = 1
-        let mutable interpolationSegmentStartColumn = 1
-
-        let advance () =
-            if index < length then
-                if text[index] = '\n' then
-                    line <- line + 1
-                    column <- 1
-                else
-                    column <- column + 1
-
-                index <- index + 1
-
-        let advanceMany count =
-            for _ in 1..count do
-                advance ()
-
-        let startPosition () = line, column
-
-        while index < length do
-            if blockCommentDepth > 0 then
-                if index + 1 < length && text[index] = '(' && text[index + 1] = '*' then
-                    blockCommentDepth <- blockCommentDepth + 1
-                    advanceMany 2
-                elif index + 1 < length && text[index] = '*' && text[index + 1] = ')' then
-                    blockCommentDepth <- blockCommentDepth - 1
-                    advanceMany 2
-                else
-                    advance ()
-            elif index + 1 < length && text[index] = '(' && text[index + 1] = '*' then
-                blockCommentDepth <- 1
-                advanceMany 2
-            elif text[index] = '/' && index + 1 < length && text[index + 1] = '/' then
-                while index < length && text[index] <> '\n' do
-                    advance ()
-            elif activeInterpolations.Count > 0 && activeInterpolations.Peek().BraceDepth = 0 then
-                let state = activeInterpolations.Peek()
-
-                let startLine, startColumn =
-                    if interpolationSegmentStart >= 0 then
-                        interpolationSegmentStartLine, interpolationSegmentStartColumn
-                    else
-                        startPosition ()
-
-                let start =
-                    if interpolationSegmentStart >= 0 then
-                        interpolationSegmentStart
-                    else
-                        index
-
-                interpolationSegmentStart <- -1
-
-                let mutable closed = false
-                let mutable holeFound = false
-                let isTriple = state.Terminator.Length = 3
-
-                while index < length && not closed && not holeFound do
-                    if
-                        index + state.Terminator.Length <= length
-                        && text.Substring(index, state.Terminator.Length) = state.Terminator
-                    then
-                        advanceMany state.Terminator.Length
-                        closed <- true
-                    elif
-                        state.DollarCount = 1
-                        && text[index] = '{'
-                        && index + 1 < length
-                        && text[index + 1] = '{'
-                    then
-                        advanceMany 2
-                    elif
-                        state.DollarCount = 1
-                        && text[index] = '}'
-                        && index + 1 < length
-                        && text[index + 1] = '}'
-                    then
-                        advanceMany 2
-                    elif state.DollarCount = 1 && text[index] = '{' then
-                        holeFound <- true
-                    elif state.DollarCount > 1 && text[index] = '{' then
-                        let mutable braceCount = 0
-
-                        while index + braceCount < length && text[index + braceCount] = '{' do
-                            braceCount <- braceCount + 1
-
-                        if braceCount >= state.DollarCount then
-                            holeFound <- true
-                        else
-                            advance ()
-                    elif text[index] = '\\' && not state.IsVerbatim && not isTriple && index + 1 < length then
-                        advanceMany 2
-                    elif
-                        text[index] = '"'
-                        && state.IsVerbatim
-                        && not isTriple
-                        && index + 1 < length
-                        && text[index + 1] = '"'
-                    then
-                        advanceMany 2
-                    else
-                        advance ()
-
-                if index > start then
-                    addToken
-                        tokens
-                        StringLiteral
-                        (text.Substring(start, index - start))
-                        startLine
-                        startColumn
-                        line
-                        column
-
-                if closed then
-                    activeInterpolations.Pop() |> ignore
-                elif holeFound then
-                    for _ in 1 .. state.DollarCount do
-                        let holeLine, holeColumn = startPosition ()
-                        advance ()
-                        addToken tokens Punctuation "{" holeLine holeColumn line column
-
-                    state.BraceDepth <- 1
-            elif text[index] = '\n' || text[index] = '\r' || Char.IsWhiteSpace(text[index]) then
-                advance ()
+    let private kindOf (token: FSharpTokenInfo) text =
+        match token.ColorClass with
+        | FSharpTokenColorKind.Comment
+        | FSharpTokenColorKind.InactiveCode -> None
+        | FSharpTokenColorKind.String ->
+            if String.Equals(token.TokenName, "CHAR", StringComparison.Ordinal) then
+                Some CharacterLiteral
             else
-                let startLine, startColumn = startPosition ()
-                let character = text[index]
+                Some StringLiteral
+        | FSharpTokenColorKind.Number -> Some Number
+        | FSharpTokenColorKind.Keyword
+        | FSharpTokenColorKind.PreprocessorKeyword -> if isOperatorText text then Some Operator else Some Keyword
+        | FSharpTokenColorKind.Identifier
+        | FSharpTokenColorKind.UpperIdentifier -> Some Identifier
+        | FSharpTokenColorKind.Operator -> Some Operator
+        | FSharpTokenColorKind.Punctuation ->
+            if isOperatorText text then
+                Some Operator
+            else
+                Some Punctuation
+        | FSharpTokenColorKind.Default
+        | FSharpTokenColorKind.Text ->
+            if String.Equals(token.TokenName, "WHITESPACE", StringComparison.Ordinal) then
+                None
+            else
+                fallbackKind text
+        | _ -> fallbackKind text
 
-                if
-                    character = '\''
-                    && (match tryScanCharacterLiteral text length index with
-                        | Some literalLength ->
-                            let start = index
-                            advanceMany literalLength
+    let private scanCompilerLine
+        (tokenizer: FSharpSourceTokenizer)
+        (state: FSharpTokenizerLexState ref)
+        (line: string)
+        (handleToken: FSharpTokenInfo -> unit)
+        =
+        let lineTokenizer = tokenizer.CreateLineTokenizer(line)
+        let mutable scanning = true
 
-                            addToken
-                                tokens
-                                CharacterLiteral
-                                (text.Substring(start, index - start))
-                                startLine
-                                startColumn
-                                line
-                                column
+        while scanning do
+            match lineTokenizer.ScanToken(state.Value) with
+            | Some token, nextState ->
+                state.Value <- nextState
+                handleToken token
+            | None, nextState ->
+                state.Value <- nextState
+                scanning <- false
 
-                            true
-                        | None -> false)
-                then
-                    ()
-                elif character = '`' && index + 1 < length && text[index + 1] = '`' then
-                    advanceMany 2
-                    let start = index
+    let private compilerNonCodeRanges
+        (tokenizer: FSharpSourceTokenizer)
+        (state: FSharpTokenizerLexState ref)
+        (line: string)
+        =
+        let ranges = ResizeArray<int * int>()
 
-                    while index + 1 < length && not (text[index] = '`' && text[index + 1] = '`') do
-                        advance ()
+        scanCompilerLine tokenizer state line (fun token ->
+            match token.ColorClass with
+            | FSharpTokenColorKind.Comment
+            | FSharpTokenColorKind.String
+            | FSharpTokenColorKind.InactiveCode -> ranges.Add(token.LeftColumn, token.RightColumn + 1)
+            | _ -> ())
 
-                    let value = text.Substring(start, index - start)
+        ranges.ToArray()
 
-                    if index + 1 < length && text[index] = '`' && text[index + 1] = '`' then
-                        advanceMany 2
+    let private lex (source: SourceFile) =
+        let tokenizer = FSharpSourceTokenizer([], Some source.FullPath, None, None)
+        let state = ref FSharpTokenizerLexState.Initial
+        let tokens = ResizeArray<LexedToken>()
 
-                    addToken tokens Identifier value startLine startColumn line column
-                elif character = '`' then
-                    advance ()
-                    let start = index
+        for lineIndex in 0 .. source.Lines.Length - 1 do
+            let line = source.Lines[lineIndex]
 
-                    while index < length && text[index] <> '`' do
-                        advance ()
+            scanCompilerLine tokenizer state line (fun token ->
+                let text = tokenText line token
 
-                    let value = text.Substring(start, index - start)
-
-                    if index < length then
-                        advance ()
-
-                    addToken tokens Identifier value startLine startColumn line column
-                elif
-                    (match tryScanInterpolationPrefix text length index with
-                     | Some(terminator, isVerbatim, dollarCount, prefixLength) ->
-                         interpolationSegmentStart <- index
-                         interpolationSegmentStartLine <- startLine
-                         interpolationSegmentStartColumn <- startColumn
-                         advanceMany prefixLength
-
-                         let state =
-                             { Terminator = terminator
-                               IsVerbatim = isVerbatim
-                               DollarCount = dollarCount
-                               BraceDepth = 0 }
-
-                         activeInterpolations.Push(state)
-                         true
-                     | None -> false)
-                then
-                    ()
-                elif character = '@' && index + 1 < length && text[index + 1] = '"' then
-                    let isTriple = index + 3 < length && text[index + 2] = '"' && text[index + 3] = '"'
-                    let terminator = if isTriple then "\"\"\"" else "\""
-                    let start = index
-                    advanceMany (1 + terminator.Length)
-                    let mutable closed = false
-
-                    while index < length && not closed do
-                        if
-                            index + terminator.Length <= length
-                            && text.Substring(index, terminator.Length) = terminator
-                        then
-                            advanceMany terminator.Length
-                            closed <- true
-                        elif not isTriple && text[index] = '"' && index + 1 < length && text[index + 1] = '"' then
-                            advanceMany 2
-                        else
-                            advance ()
-
-                    addToken
-                        tokens
-                        StringLiteral
-                        (text.Substring(start, index - start))
-                        startLine
-                        startColumn
-                        line
-                        column
-                elif character = '"' then
-                    let triple = index + 2 < length && text[index + 1] = '"' && text[index + 2] = '"'
-                    let terminator = if triple then "\"\"\"" else "\""
-                    let start = index
-                    advanceMany terminator.Length
-                    let mutable closed = false
-
-                    while index < length && not closed do
-                        if
-                            index + terminator.Length <= length
-                            && text.Substring(index, terminator.Length) = terminator
-                        then
-                            advanceMany terminator.Length
-                            closed <- true
-                        elif text[index] = '\\' && not triple && index + 1 < length then
-                            advanceMany 2
-                        else
-                            advance ()
-
-                    addToken
-                        tokens
-                        StringLiteral
-                        (text.Substring(start, index - start))
-                        startLine
-                        startColumn
-                        line
-                        column
-                elif character = '{' then
-                    advance ()
-
-                    if activeInterpolations.Count > 0 then
-                        let state = activeInterpolations.Peek()
-                        state.BraceDepth <- state.BraceDepth + 1
-
-                    addToken tokens Punctuation "{" startLine startColumn line column
-                elif character = '}' then
-                    if activeInterpolations.Count > 0 then
-                        let state = activeInterpolations.Peek()
-
-                        if state.BraceDepth = 1 && state.DollarCount > 1 then
-                            let mutable closeCount = 0
-
-                            while index + closeCount < length && text[index + closeCount] = '}' do
-                                closeCount <- closeCount + 1
-
-                            if closeCount >= state.DollarCount then
-                                for _ in 1 .. state.DollarCount do
-                                    let closeLine, closeColumn = startPosition ()
-                                    advance ()
-                                    addToken tokens Punctuation "}" closeLine closeColumn line column
-
-                                state.BraceDepth <- 0
-                                interpolationSegmentStart <- index
-                                interpolationSegmentStartLine <- line
-                                interpolationSegmentStartColumn <- column
-                            else
-                                advance ()
-                                addToken tokens Punctuation "}" startLine startColumn line column
-                        else
-                            advance ()
-                            state.BraceDepth <- state.BraceDepth - 1
-
-                            if state.BraceDepth = 0 then
-                                interpolationSegmentStart <- index
-                                interpolationSegmentStartLine <- line
-                                interpolationSegmentStartColumn <- column
-
-                            addToken tokens Punctuation "}" startLine startColumn line column
-                    else
-                        advance ()
-                        addToken tokens Punctuation "}" startLine startColumn line column
-                elif
-                    character = '\''
-                    && index + 1 < length
-                    && (Char.IsLetter(text[index + 1]) || text[index + 1] = '_')
-                then
-                    let start = index
-                    advance ()
-
-                    while index < length && isIdentifierPart text[index] do
-                        advance ()
-
-                    addToken tokens Identifier (text.Substring(start, index - start)) startLine startColumn line column
-                elif isIdentifierStart character then
-                    let start = index
-                    advance ()
-
-                    while index < length && isIdentifierPart text[index] do
-                        advance ()
-
-                    let value = text.Substring(start, index - start)
-                    let kind = if keywords.Contains(value) then Keyword else Identifier
-                    addToken tokens kind value startLine startColumn line column
-                elif Char.IsDigit character then
-                    let start = index
-                    advance ()
-
-                    let mutable scanning = true
-
-                    while index < length && scanning do
-                        if text[index] = '.' then
-                            if isRangeOrMemberAccessDot text length index then
-                                scanning <- false
-                            else
-                                advance ()
-                        elif Char.IsLetterOrDigit(text[index]) || text[index] = '_' then
-                            advance ()
-                        else
-                            scanning <- false
-
-                    addToken tokens Number (text.Substring(start, index - start)) startLine startColumn line column
-                elif isOperatorCharacter character then
-                    let start = index
-                    advance ()
-
-                    while index < length && isOperatorCharacter text[index] do
-                        advance ()
-
-                    addToken tokens Operator (text.Substring(start, index - start)) startLine startColumn line column
-                else
-                    advance ()
-
-                    let kind =
-                        if "()[]{};,".IndexOf(character) >= 0 then
-                            Punctuation
-                        else
-                            Operator
-
-                    addToken tokens kind (string character) startLine startColumn line column
+                if not (String.IsNullOrEmpty text) then
+                    match kindOf token text with
+                    | Some kind ->
+                        tokens.Add(
+                            { Line = lineIndex + 1
+                              LeftColumn = token.LeftColumn
+                              Text = text
+                              Kind = kind }
+                        )
+                    | None -> ())
 
         tokens.ToArray()
+
+    let private adjacent (left: LexedToken) (right: LexedToken) =
+        left.Line = right.Line && right.LeftColumn = left.LeftColumn + left.Text.Length
+
+    let private isOrdered (tokens: LexedToken array) =
+        let mutable ordered = true
+
+        for index in 1 .. tokens.Length - 1 do
+            let previous = tokens[index - 1]
+            let current = tokens[index]
+
+            if
+                current.Line < previous.Line
+                || (current.Line = previous.Line && current.LeftColumn < previous.LeftColumn)
+            then
+                ordered <- false
+
+        ordered
+
+    let private mergeStringTokens (tokens: LexedToken array) =
+        let result = ResizeArray<LexedToken>()
+
+        let ordered =
+            if isOrdered tokens then
+                tokens
+            else
+                tokens
+                |> Array.sortWith (fun left right ->
+                    let lineComparison = compare left.Line right.Line
+
+                    if lineComparison <> 0 then
+                        lineComparison
+                    else
+                        compare left.LeftColumn right.LeftColumn)
+
+        for token in ordered do
+            if
+                result.Count > 0
+                && token.Kind = StringLiteral
+                && result[result.Count - 1].Kind = StringLiteral
+                && adjacent result[result.Count - 1] token
+            then
+                let previous = result[result.Count - 1]
+
+                result[result.Count - 1] <-
+                    { previous with
+                        Text = previous.Text + token.Text }
+            else
+                result.Add(token)
+
+        result.ToArray()
+
+    let private splitCompositePunctuation (token: LexedToken) =
+        if
+            token.Kind = Punctuation
+            && token.Text.Length > 1
+            && token.Text |> Seq.exists isPunctuationCharacter
+        then
+            token.Text.ToCharArray()
+            |> Array.mapi (fun offset character ->
+                { token with
+                    LeftColumn = token.LeftColumn + offset
+                    Text = string character
+                    Kind =
+                        if isOperatorCharacter character then
+                            Operator
+                        else
+                            Punctuation })
+        else
+            [| token |]
+
+    let private splitPunctuation (tokens: LexedToken array) =
+        tokens |> Array.collect splitCompositePunctuation
+
+    let private isIdentifierStart (character: char) =
+        Char.IsLetter character
+        || character = '_'
+        || character = '\''
+        || character = '`'
+
+    let private part (token: LexedToken) offset length (kind: SyntaxTokenKind) =
+        { token with
+            LeftColumn = token.LeftColumn + offset
+            Text = token.Text.Substring(offset, length)
+            Kind = kind }
+
+    let private splitNumericToken (token: LexedToken) (nextToken: LexedToken option) =
+        if token.Kind <> Number then
+            [| token |]
+        else
+            let text = token.Text
+            let rangeIndex = text.IndexOf("..", StringComparison.Ordinal)
+
+            if rangeIndex > 0 && rangeIndex = text.Length - 2 then
+                [| part token 0 rangeIndex Number; part token rangeIndex 2 Operator |]
+            else
+                let dotIndex = text.IndexOf('.')
+
+                if
+                    dotIndex > 0
+                    && dotIndex < text.Length - 1
+                    && text.IndexOf('.', dotIndex + 1) < 0
+                    && isIdentifierStart text[dotIndex + 1]
+                then
+                    [| part token 0 dotIndex Number
+                       part token dotIndex 1 Operator
+                       part token (dotIndex + 1) (text.Length - dotIndex - 1) Identifier |]
+                elif
+                    dotIndex = text.Length - 1
+                    && dotIndex > 0
+                    && (match nextToken with
+                        | Some next -> next.Kind = Identifier && adjacent token next
+                        | None -> false)
+                then
+                    [| part token 0 dotIndex Number; part token dotIndex 1 Operator |]
+                else
+                    [| token |]
+
+    let private splitNumericTokens (tokens: LexedToken array) =
+        let result = ResizeArray<LexedToken>()
+
+        for index in 0 .. tokens.Length - 1 do
+            let nextToken =
+                if index + 1 < tokens.Length then
+                    Some tokens[index + 1]
+                else
+                    None
+
+            result.AddRange(splitNumericToken tokens[index] nextToken)
+
+        result.ToArray()
+
+    let private mergeQuotedIdentifiers (tokens: LexedToken array) =
+        let result = ResizeArray<LexedToken>()
+        let mutable index = 0
+
+        while index < tokens.Length do
+            if tokens[index].Kind = Identifier && tokens[index].Text = "`" then
+                let mutable closing = index + 1
+
+                while closing < tokens.Length
+                      && tokens[closing].Line = tokens[index].Line
+                      && adjacent tokens[closing - 1] tokens[closing]
+                      && (tokens[closing].Kind <> Identifier || tokens[closing].Text <> "`") do
+                    closing <- closing + 1
+
+                if
+                    closing < tokens.Length
+                    && tokens[closing].Kind = Identifier
+                    && tokens[closing].Text = "`"
+                    && adjacent tokens[closing - 1] tokens[closing]
+                then
+                    let text =
+                        tokens[index..closing]
+                        |> Array.map (fun token -> token.Text)
+                        |> String.concat ""
+
+                    result.Add({ tokens[index] with Text = text })
+
+                    index <- closing + 1
+                else
+                    result.Add(tokens[index])
+                    index <- index + 1
+            else
+                result.Add(tokens[index])
+                index <- index + 1
+
+        result.ToArray()
+
+    let private lexFragment (lineNumber: int) (offset: int) (text: string) =
+        let tokenizer = FSharpSourceTokenizer([], Some "<interpolation>", None, None)
+        let state = ref FSharpTokenizerLexState.Initial
+        let tokens = ResizeArray<LexedToken>()
+
+        scanCompilerLine tokenizer state text (fun token ->
+            let tokenText = tokenText text token
+
+            if not (String.IsNullOrEmpty tokenText) then
+                match kindOf token tokenText with
+                | Some kind ->
+                    tokens.Add(
+                        { Line = lineNumber
+                          LeftColumn = offset + token.LeftColumn
+                          Text = tokenText
+                          Kind = kind }
+                    )
+                | None -> ())
+
+        tokens.ToArray()
+
+    let private runLength (line: string) character startIndex limit =
+        let mutable length = 0
+
+        while startIndex + length < limit && line[startIndex + length] = character do
+            length <- length + 1
+
+        length
+
+    let private findExtendedInterpolationEnd (line: string) contentStart (terminator: string) isVerbatim dollarCount =
+        let tokenizer = FSharpSourceTokenizer([], Some "<interpolation>", None, None)
+        let state = ref FSharpTokenizerLexState.Initial
+
+        let nonCodeRanges =
+            line.Substring(contentStart)
+            |> compilerNonCodeRanges tokenizer state
+            |> Array.map (fun (rangeStart, rangeEnd) -> rangeStart + contentStart, rangeEnd + contentStart)
+
+        let nonCodeRangeEndAt column =
+            nonCodeRanges
+            |> Array.tryPick (fun (rangeStart, rangeEnd) ->
+                if rangeStart <= column && column < rangeEnd then
+                    Some rangeEnd
+                else
+                    None)
+
+        let mutable cursor = contentStart
+        let mutable inHole = false
+        let mutable nestedBraceDepth = 0
+        let mutable contentEnd = line.Length
+        let mutable closed = false
+
+        while cursor < line.Length && not closed do
+            if inHole then
+                match nonCodeRangeEndAt cursor with
+                | Some rangeEnd -> cursor <- min line.Length rangeEnd
+                | None when line[cursor] = '{' ->
+                    nestedBraceDepth <- nestedBraceDepth + 1
+                    cursor <- cursor + 1
+                | None when line[cursor] = '}' ->
+                    let closingLength = runLength line '}' cursor line.Length
+
+                    if nestedBraceDepth = 0 && closingLength >= dollarCount then
+                        inHole <- false
+                        cursor <- cursor + dollarCount
+                    else
+                        if nestedBraceDepth > 0 then
+                            nestedBraceDepth <- nestedBraceDepth - 1
+
+                        cursor <- cursor + 1
+                | None -> cursor <- cursor + 1
+            else
+                let openingLength = runLength line '{' cursor line.Length
+
+                if openingLength >= dollarCount then
+                    inHole <- true
+                    nestedBraceDepth <- 0
+                    cursor <- cursor + dollarCount
+                elif not isVerbatim && line[cursor] = '\\' && cursor + 1 < line.Length then
+                    cursor <- cursor + 2
+                elif
+                    isVerbatim
+                    && terminator.Length = 1
+                    && line[cursor] = '"'
+                    && cursor + 1 < line.Length
+                    && line[cursor + 1] = '"'
+                then
+                    cursor <- cursor + 2
+                elif
+                    cursor + terminator.Length <= line.Length
+                    && line.Substring(cursor, terminator.Length) = terminator
+                then
+                    contentEnd <- cursor
+                    closed <- true
+                else
+                    cursor <- cursor + 1
+
+        contentEnd
+
+    let private tryInterpolationPrefix (line: string) startIndex =
+        let mutable cursor = startIndex
+        let hasAtBefore = line[cursor] = '@'
+
+        if hasAtBefore then
+            cursor <- cursor + 1
+
+        let dollarStart = cursor
+
+        while cursor < line.Length && line[cursor] = '$' do
+            cursor <- cursor + 1
+
+        let dollarCount = cursor - dollarStart
+
+        if dollarCount < 2 then
+            None
+        else
+            let hasAtAfter = cursor < line.Length && line[cursor] = '@'
+
+            if hasAtAfter then
+                cursor <- cursor + 1
+
+            if hasAtBefore && hasAtAfter then
+                None
+            elif cursor >= line.Length || line[cursor] <> '"' then
+                None
+            else
+                let quoteStart = cursor
+
+                let isTriple =
+                    cursor + 2 < line.Length && line[cursor + 1] = '"' && line[cursor + 2] = '"'
+
+                let quoteLength = if isTriple then 3 else 1
+                let contentStart = cursor + quoteLength
+                let terminator = if isTriple then "\"\"\"" else "\""
+                let isVerbatim = hasAtBefore || hasAtAfter
+
+                let contentEnd =
+                    findExtendedInterpolationEnd line contentStart terminator isVerbatim dollarCount
+
+                Some(quoteStart, contentStart, contentEnd, dollarCount)
+
+    let private interpolationHoles (line: string) startColumn endColumn dollarCount =
+        let holes = ResizeArray<int * int * int>()
+        let tokenizer = FSharpSourceTokenizer([], Some "<interpolation>", None, None)
+        let state = ref FSharpTokenizerLexState.Initial
+
+        let nonCodeRanges =
+            line.Substring(startColumn, endColumn - startColumn)
+            |> compilerNonCodeRanges tokenizer state
+            |> Array.map (fun (rangeStart, rangeEnd) -> rangeStart + startColumn, rangeEnd + startColumn)
+
+        let nonCodeRangeEndAt column =
+            nonCodeRanges
+            |> Array.tryPick (fun (rangeStart, rangeEnd) ->
+                if rangeStart <= column && column < rangeEnd then
+                    Some rangeEnd
+                else
+                    None)
+
+        let mutable cursor = startColumn
+
+        while cursor < endColumn do
+            match nonCodeRangeEndAt cursor with
+            | Some rangeEnd -> cursor <- min endColumn rangeEnd
+            | None when line[cursor] = '{' ->
+                let openingLength = runLength line '{' cursor endColumn
+
+                if openingLength >= dollarCount then
+                    let openingStart = cursor
+                    let bodyStart = cursor + dollarCount
+                    let mutable bodyEnd = bodyStart
+                    let mutable nestedBraceDepth = 0
+                    let mutable foundEnd = false
+
+                    while bodyEnd < endColumn && not foundEnd do
+                        match nonCodeRangeEndAt bodyEnd with
+                        | Some rangeEnd -> bodyEnd <- min endColumn rangeEnd
+                        | None when line[bodyEnd] = '{' ->
+                            nestedBraceDepth <- nestedBraceDepth + 1
+                            bodyEnd <- bodyEnd + 1
+                        | None when line[bodyEnd] = '}' ->
+                            let closingLength = runLength line '}' bodyEnd endColumn
+
+                            if nestedBraceDepth = 0 && closingLength >= dollarCount then
+                                foundEnd <- true
+                            else
+                                if nestedBraceDepth > 0 then
+                                    nestedBraceDepth <- nestedBraceDepth - 1
+
+                                bodyEnd <- bodyEnd + 1
+                        | None -> bodyEnd <- bodyEnd + 1
+
+                    if foundEnd then
+                        holes.Add(openingStart, bodyStart, bodyEnd)
+                        cursor <- bodyEnd + dollarCount
+                    else
+                        cursor <- endColumn
+                else
+                    cursor <- cursor + max 1 openingLength
+            | None -> cursor <- cursor + 1
+
+        holes.ToArray()
+
+    let private tokenIsInsideRange (token: LexedToken) lineNumber startColumn endColumn =
+        token.Line = lineNumber
+        && token.LeftColumn >= startColumn
+        && token.LeftColumn + token.Text.Length <= endColumn
+
+    let private hasStringTokenAt (tokens: LexedToken array) lineNumber column =
+        tokens
+        |> Array.exists (fun token ->
+            token.Line = lineNumber
+            && token.Kind = StringLiteral
+            && token.LeftColumn <= column
+            && column < token.LeftColumn + token.Text.Length)
+
+    let private nonCodeRanges (source: SourceFile) =
+        let tokenizer = FSharpSourceTokenizer([], Some source.FullPath, None, None)
+        let state = ref FSharpTokenizerLexState.Initial
+        let ranges = ResizeArray<int * int * int>()
+
+        for lineIndex in 0 .. source.Lines.Length - 1 do
+            let line = source.Lines[lineIndex]
+
+            for startColumn, endColumn in compilerNonCodeRanges tokenizer state line do
+                ranges.Add(lineIndex + 1, startColumn, endColumn)
+
+        ranges.ToArray()
+
+    let private isInsideNonCodeRange ranges lineNumber column =
+        ranges
+        |> Array.exists (fun (line, startColumn, endColumn) ->
+            line = lineNumber && startColumn <= column && column < endColumn)
+
+    let private containsExtendedInterpolationPrefix (source: SourceFile) =
+        source.Lines
+        |> Array.exists (fun line -> line.Contains("$$", StringComparison.Ordinal))
+
+    let private supplementExtendedInterpolationTokens (source: SourceFile) (tokens: LexedToken array) =
+        let result = ResizeArray<LexedToken>()
+        let replacements = ResizeArray<int * int * int>()
+        let supplements = ResizeArray<LexedToken>()
+        let ignoredRanges = nonCodeRanges source
+
+        for lineIndex in 0 .. source.Lines.Length - 1 do
+            let line = source.Lines[lineIndex]
+            let lineNumber = lineIndex + 1
+            let mutable index = 0
+
+            while index < line.Length do
+                match tryInterpolationPrefix line index with
+                | Some(quoteStart, contentStart, contentEnd, dollarCount) ->
+                    if
+                        not (isInsideNonCodeRange ignoredRanges lineNumber index)
+                        && not (hasStringTokenAt tokens lineNumber index)
+                    then
+                        let quoteLength = contentStart - quoteStart
+                        let terminator = line.Substring(quoteStart, quoteLength)
+
+                        let fullEnd =
+                            if
+                                contentEnd < line.Length
+                                && contentEnd + quoteLength <= line.Length
+                                && line.Substring(contentEnd, quoteLength) = terminator
+                            then
+                                contentEnd + quoteLength
+                            else
+                                line.Length
+
+                        replacements.Add(lineNumber, index, fullEnd)
+                        let lineHoles = interpolationHoles line contentStart contentEnd dollarCount
+
+                        let addStringToken startColumn endColumn =
+                            if endColumn > startColumn then
+                                supplements.Add(
+                                    { Line = lineNumber
+                                      LeftColumn = startColumn
+                                      Text = line.Substring(startColumn, endColumn - startColumn)
+                                      Kind = StringLiteral }
+                                )
+
+                        let addPunctuationToken character column =
+                            supplements.Add(
+                                { Line = lineNumber
+                                  LeftColumn = column
+                                  Text = string character
+                                  Kind = Punctuation }
+                            )
+
+                        if lineHoles.Length = 0 then
+                            addStringToken index fullEnd
+                        else
+                            let mutable segmentStart = index
+
+                            for openingStart, bodyStart, closingStart in lineHoles do
+                                addStringToken segmentStart openingStart
+
+                                for offset in 0 .. dollarCount - 1 do
+                                    addPunctuationToken '{' (openingStart + offset)
+
+                                supplements.AddRange(
+                                    lexFragment
+                                        lineNumber
+                                        bodyStart
+                                        (line.Substring(bodyStart, closingStart - bodyStart))
+                                )
+
+                                for offset in 0 .. dollarCount - 1 do
+                                    addPunctuationToken '}' (closingStart + offset)
+
+                                segmentStart <- closingStart + dollarCount
+
+                            addStringToken segmentStart fullEnd
+
+                    index <- max (index + 1) contentEnd
+                | None -> index <- index + 1
+
+        for token in tokens do
+            let isReplaced =
+                replacements
+                |> Seq.exists (fun (lineNumber, startColumn, endColumn) ->
+                    tokenIsInsideRange token lineNumber startColumn endColumn)
+
+            if not isReplaced then
+                result.Add(token)
+
+        for token in supplements do
+            result.Add(token)
+
+        result.ToArray()
+
+    let private supplementInterpolationTokens (source: SourceFile) (tokens: LexedToken array) =
+        if containsExtendedInterpolationPrefix source then
+            supplementExtendedInterpolationTokens source tokens
+        else
+            tokens
+
+    let private mergeTypeParameterQuotes (tokens: LexedToken array) =
+        let result = ResizeArray<LexedToken>()
+        let mutable index = 0
+
+        while index < tokens.Length do
+            if
+                index + 1 < tokens.Length
+                && tokens[index].Kind = Identifier
+                && tokens[index].Text = "'"
+                && tokens[index + 1].Kind = Identifier
+                && adjacent tokens[index] tokens[index + 1]
+            then
+                result.Add(
+                    { tokens[index] with
+                        Text = tokens[index].Text + tokens[index + 1].Text }
+                )
+
+                index <- index + 2
+            else
+                result.Add(tokens[index])
+                index <- index + 1
+
+        result.ToArray()
+
+    let private sortLexedTokens (tokens: LexedToken array) =
+        if isOrdered tokens then
+            tokens
+        else
+            tokens
+            |> Array.sortWith (fun left right ->
+                let lineComparison = compare left.Line right.Line
+
+                if lineComparison <> 0 then
+                    lineComparison
+                else
+                    compare left.LeftColumn right.LeftColumn)
+
+    let private displayText (token: LexedToken) =
+        if
+            token.Kind = Identifier
+            && token.Text.Length >= 2
+            && token.Text.StartsWith("`", StringComparison.Ordinal)
+            && token.Text.EndsWith("`", StringComparison.Ordinal)
+        then
+            let delimiterLength =
+                if token.Text.StartsWith("``", StringComparison.Ordinal) then
+                    2
+                else
+                    1
+
+            if token.Text.Length > delimiterLength * 2 then
+                token.Text.Substring(delimiterLength, token.Text.Length - delimiterLength * 2)
+            else
+                token.Text
+        else
+            token.Text
+
+    let private toSyntaxToken (token: LexedToken) =
+        { Text = displayText token
+          Kind = token.Kind
+          Line = token.Line
+          Column = token.LeftColumn + 1
+          EndLine = token.Line
+          EndColumn = token.LeftColumn + token.Text.Length + 1 }
+
+    /// Tokenizes source through the F# compiler lexer and exposes the small
+    /// domain token contract used by the analyzer.
+    let scan (source: SourceFile) =
+        source
+        |> lex
+        |> mergeStringTokens
+        |> supplementInterpolationTokens source
+        |> mergeStringTokens
+        |> splitPunctuation
+        |> splitNumericTokens
+        |> mergeQuotedIdentifiers
+        |> mergeTypeParameterQuotes
+        |> sortLexedTokens
+        |> Array.map toSyntaxToken

@@ -1526,6 +1526,47 @@ let greet (name: string) =
         Assert.Contains("dir", idTokensDV)
 
     [<Fact>]
+    let ``scanner keeps doubled quotes inside verbatim extended strings`` () =
+        for line in [| "let _ = $$@\"a\"\"b\" + y"; "let _ = @$$\"a\"\"b\" + y" |] do
+            let source =
+                { FullPath = "test.fs"
+                  Kind = Implementation
+                  Text = line
+                  Lines = [| line |] }
+
+            let tokens = Scanner.scan source
+
+            let identifiers =
+                tokens
+                |> Array.filter (fun token -> token.Kind = Identifier)
+                |> Array.map (fun token -> token.Text)
+
+            Assert.Contains("y", identifiers)
+
+            Assert.True(
+                tokens
+                |> Array.pairwise
+                |> Array.forall (fun (left, right) -> left.Line <> right.Line || left.EndColumn <= right.Column)
+            )
+
+    [<Fact>]
+    let ``scanner ignores braces inside interpolation expression literals`` () =
+        let line = "let _ = $$\"{{ \"{\" + value }}\""
+
+        let source =
+            { FullPath = "test.fs"
+              Kind = Implementation
+              Text = line
+              Lines = [| line |] }
+
+        let identifiers =
+            Scanner.scan source
+            |> Array.filter (fun token -> token.Kind = Identifier)
+            |> Array.map (fun token -> token.Text)
+
+        Assert.Contains("value", identifiers)
+
+    [<Fact>]
     let ``scanner scans unicode hex and decimal character literals as CharacterLiteral`` () =
         let source =
             { FullPath = "test.fs"
@@ -1589,6 +1630,25 @@ let greet (name: string) =
         let charTokens = tokens |> Array.filter (fun t -> t.Kind = CharacterLiteral)
 
         Assert.Empty(charTokens)
+
+    [<Fact>]
+    let ``scanner maps compiler keywords with source ranges`` () =
+        let source =
+            { FullPath = "test.fs"
+              Kind = Signature
+              Text = "sig global fixed mod"
+              Lines = [| "sig global fixed mod" |] }
+
+        let tokens = Scanner.scan source
+
+        Assert.Equal<(SyntaxTokenKind * string * int * int * int * int)[]>(
+            [| (Keyword, "sig", 1, 1, 1, 4)
+               (Keyword, "global", 1, 5, 1, 11)
+               (Keyword, "fixed", 1, 12, 1, 17)
+               (Keyword, "mod", 1, 18, 1, 21) |],
+            tokens
+            |> Array.map (fun token -> token.Kind, token.Text, token.Line, token.Column, token.EndLine, token.EndColumn)
+        )
 
     [<Fact>]
     let ``duplicated array key ignores commas in map entry values`` () =
