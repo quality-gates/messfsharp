@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.7
+
+- Preserve parenthesized binding type annotations (#124).
+- Classify double-backtick function bindings as functions and count their parameters (#125).
+- Handle compound generic closing angle brackets (#126).
+- Classify mutually recursive `and` type declarations as types (#135).
+- Match prefix generic parameters and inline attributes in type declarations (#137).
+- Collect multiline attribute applications in preceding attributes (#133).
+- Replace duplicate `Value` declarations with `Field` declarations for class fields (#139).
+- Keep sequential uppercase parameters in functions and members (#131).
+- Adapt scanning to `FSharpSourceTokenizer` (#144, #145).
+
 ## 0.1.6
 
 - Emit relative paths in GitHub, GitLab, SARIF, and Checkstyle reports (#113).
