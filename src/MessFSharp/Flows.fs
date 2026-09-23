@@ -31,8 +31,8 @@ module Flows =
         | TypeData of (int * int) * string * bool
         | TypeProperty of (int * int) * string * bool
         | TypeMethod of (int * int) * string
-        | ModuleData of path: string list * name: string * tracked: bool * container: bool
-        | Open of path: string list * target: string list
+        | ModuleData of path: string list * name: string * tracked: bool * container: bool * pos: (int * int)
+        | Open of path: string list * target: string list * pos: (int * int)
         | Candidate of Owner * Access * range
 
     type private Resolution =
@@ -434,7 +434,7 @@ module Flows =
         let moduleData () =
             patternNames container pattern
             |> List.map (fun (name, isContainer) ->
-                ModuleData(modulePathOf ancestors, name, tracked || isContainer, isContainer))
+                ModuleData(modulePathOf ancestors, name, tracked || isContainer, isContainer, key pattern.Range))
 
         match parent, typeKeyOf ancestors with
         | SyntaxNode.SynModule(SynModuleDecl.Let _), _ -> moduleData ()
@@ -452,7 +452,7 @@ module Flows =
         | SyntaxNode.SynModule(SynModuleDecl.Open(
             target = SynOpenDeclTarget.ModuleOrNamespace(longId = SynLongIdent(id = identifiers)))),
           _,
-          _ -> [ Open(modulePathOf path, names identifiers) ]
+          _ -> [ Open(modulePathOf path, names identifiers, key node.Range) ]
         | SyntaxNode.SynMemberDefn(SynMemberDefn.ImplicitCtor(ctorArgs = arguments)), _, _ ->
             match typeKeyOf path with
             | Some typeKey ->
@@ -475,6 +475,61 @@ module Flows =
         | SyntaxNode.SynPat pattern, _, Some current -> patternFacts current path pattern
         | SyntaxNode.SynExpr expression, _, Some current -> expressionFacts current path expression
         | _ -> []
+
+    let rec private enclosing path =
+        match path with
+        | [] -> [ [] ]
+        | _ -> path :: enclosing (List.take (path.Length - 1) path)
+
+    /// Innermost module value an access names, choosing between module declarations
+    /// and opened values by source position: the later one wins, within the owner's enclosing modules.
+    let private moduleValue moduleData opens current (identifiers: string list) accessRange =
+        let accessPos = key accessRange
+
+        let candidateIn encPath =
+            let localCandidate =
+                [ 0 .. identifiers.Length - 1 ]
+                |> List.tryPick (fun qualifiers ->
+                    let targetPath = encPath @ List.take qualifiers identifiers
+                    let valueName = identifiers[qualifiers]
+
+                    moduleData
+                    |> Map.tryFind (targetPath, valueName)
+                    |> Option.bind (fun items -> items |> List.tryFind (fun (_, _, pos) -> pos <= accessPos))
+                    |> Option.map (fun (tracked, container, pos) ->
+                        String.concat "." (List.take (qualifiers + 1) identifiers), (tracked, container), pos))
+
+            let openCandidate (target, openPos) =
+                let openTargets = enclosing encPath |> List.map (fun prefix -> prefix @ target)
+
+                List.allPairs openTargets [ 0 .. identifiers.Length - 1 ]
+                |> List.tryPick (fun (openTarget, qualifiers) ->
+                    let targetPath = openTarget @ List.take qualifiers identifiers
+                    let valueName = identifiers[qualifiers]
+
+                    moduleData
+                    |> Map.tryFind (targetPath, valueName)
+                    |> Option.bind (fun items -> items |> List.tryFind (fun (_, _, pos) -> pos <= accessPos))
+                    |> Option.map (fun (tracked, container, _) ->
+                        String.concat "." (List.take (qualifiers + 1) identifiers), (tracked, container), openPos))
+
+            let openCandidates =
+                opens
+                |> List.filter (fun (path, _, openPos) -> path = encPath && openPos <= accessPos)
+                |> List.choose (fun (_, target, openPos) -> openCandidate (target, openPos))
+
+            let allCandidates =
+                match localCandidate with
+                | Some local -> local :: openCandidates
+                | None -> openCandidates
+
+            match allCandidates with
+            | [] -> None
+            | candidates ->
+                let resolvedName, value, _ = candidates |> List.maxBy (fun (_, _, pos) -> pos)
+                Some(resolvedName, value)
+
+        enclosing current.Path |> List.tryPick candidateIn
 
     let private resolver (facts: Fact list) =
         let parameters =
@@ -517,33 +572,18 @@ module Flows =
         let moduleData =
             facts
             |> List.choose (function
-                | ModuleData(path, name, tracked, container) -> Some((path, name), (tracked, container))
+                | ModuleData(path, name, tracked, container, pos) -> Some((path, name), (tracked, container, pos))
                 | _ -> None)
+            |> List.groupBy fst
+            |> List.map (fun (key, items) ->
+                key, items |> List.map snd |> List.sortByDescending (fun (_, _, pos) -> pos))
             |> Map.ofList
 
         let opens =
             facts
             |> List.choose (function
-                | Open(path, target) -> Some(path, target)
+                | Open(path, target, pos) -> Some(path, target, pos)
                 | _ -> None)
-
-        let rec enclosing path =
-            match path with
-            | [] -> [ [] ]
-            | _ -> path :: enclosing (List.take (path.Length - 1) path)
-
-        /// Innermost module value an access names, from enclosing modules first, then opened modules.
-        let moduleValue current (identifiers: string list) =
-            let opened =
-                opens
-                |> List.filter (fun (path, _) -> List.truncate path.Length current.Path = path)
-                |> List.collect (fun (path, target) -> enclosing path |> List.map (fun prefix -> prefix @ target))
-
-            List.allPairs (enclosing current.Path @ opened) [ 0 .. identifiers.Length - 1 ]
-            |> List.tryPick (fun (prefix, qualifiers) ->
-                moduleData
-                |> Map.tryFind (prefix @ List.take qualifiers identifiers, identifiers[qualifiers])
-                |> Option.map (fun value -> String.concat "." (List.take (qualifiers + 1) identifiers), value))
 
         let isLocal current name accessRange =
             bound
@@ -567,7 +607,11 @@ module Flows =
                     current.TypeKey
                     |> Option.bind (fun typeKey -> typeData |> Map.tryFind (typeKey, root))
 
-                match parameters |> Map.tryFind (current.Key, root), typeContainer, moduleValue current identifiers with
+                match
+                    parameters |> Map.tryFind (current.Key, root),
+                    typeContainer,
+                    moduleValue moduleData opens current identifiers accessRange
+                with
                 | _ when isLocal current root accessRange -> Local
                 | Some container, _, _ -> Argument(root, container)
                 | None, Some container, _ -> Data(TypeState, root, container)
