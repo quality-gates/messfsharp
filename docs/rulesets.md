@@ -33,7 +33,8 @@ output is its return value; anything else is implicit.
 
 - a module-level or `static let mutable`, `ref` cell, or mutable collection
   (`ResizeArray`, `Dictionary`, `HashSet`, `StringBuilder`, and similar,
-  either constructed directly or annotated with the type); or
+  either constructed directly or annotated with the type), whether named
+  directly, qualified by its module (`State.count`), or through an `open`; or
 - ambient input such as `DateTime.Now`, `Guid.NewGuid`, `Random.Shared`,
   `Environment.GetEnvironmentVariable`, `Console.ReadLine`, `stdin`, and
   `File`/`Directory` reads.
@@ -63,8 +64,11 @@ reported.
 
 Each owner reports a given name once per direction, at its first occurrence.
 Nested functions and lambdas belong to their enclosing module-level function
-or member. Locals, including parameters of nested lambdas, shadow outer names
-only within their own scope. The analysis is syntactic only. It does not
+or member. Locals, including local functions and parameters of nested lambdas,
+shadow outer names only within their own scope. Module values resolve from the
+innermost enclosing module outwards, then through `open` declarations; an
+`open` that shadows an earlier declaration of the same name is not modelled.
+The analysis is syntactic only. It does not
 follow calls into other functions, does not see aliasing (including a type
 self identifier such as `type T() as self`), and does not treat exceptions or
 `exit` as outputs. Arguments of a lambda-bodied binding

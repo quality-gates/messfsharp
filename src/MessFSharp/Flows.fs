@@ -16,7 +16,8 @@ module Flows =
           Line: int
           Key: int * int
           TypeKey: (int * int) option
-          Self: string option }
+          Self: string option
+          Path: string list }
 
     type private Access =
         | Read of string list
@@ -30,7 +31,8 @@ module Flows =
         | TypeData of (int * int) * string * bool
         | TypeProperty of (int * int) * string * bool
         | TypeMethod of (int * int) * string
-        | ModuleData of string * bool
+        | ModuleData of path: string list * name: string * tracked: bool * container: bool
+        | Open of path: string list * target: string list
         | Candidate of Owner * Access * range
 
     type private Resolution =
@@ -230,6 +232,16 @@ module Flows =
 
     let private bindingKey (SynBinding(headPat = pattern)) = key pattern.Range
 
+    /// Names of the nested modules enclosing a node, outermost first.
+    let private modulePathOf (ancestors: SyntaxNode list) =
+        ancestors
+        |> List.rev
+        |> List.collect (fun node ->
+            match node with
+            | SyntaxNode.SynModule(SynModuleDecl.NestedModule(moduleInfo = SynComponentInfo(longId = identifiers))) ->
+                names identifiers
+            | _ -> [])
+
     let private owner (SynBinding(headPat = pattern) as binding) ancestors =
         let name, self =
             match pattern with
@@ -246,7 +258,8 @@ module Flows =
           Line = pattern.Range.StartLine
           Key = bindingKey binding
           TypeKey = typeKeyOf ancestors
-          Self = self }
+          Self = self
+          Path = modulePathOf ancestors }
 
     /// The outermost function or member binding enclosing the first node; nested functions belong to it.
     let private ownerOf (nodes: SyntaxNode list) =
@@ -382,6 +395,7 @@ module Flows =
                 not (Range.equals head.Range pattern.Range)
                 ->
                 Some body.Range
+            | SyntaxNode.SynExpr(SynExpr.LetOrUse letOrUse) :: _ when letOrUse.IsRecursive -> Some letOrUse.Range
             | SyntaxNode.SynExpr(SynExpr.LetOrUse letOrUse) :: _ -> Some letOrUse.Body.Range
             | SyntaxNode.SynExpr(SynExpr.ForEach(bodyExpr = body)) :: _ -> Some body.Range
             | SyntaxNode.SynMatchClause clause :: _ -> Some clause.Range
@@ -397,6 +411,11 @@ module Flows =
         | SynPat.OptionalVal(identifier, _), Some scope
         | SynPat.LongIdent(longDotId = SynLongIdent(id = [ identifier ]); argPats = SynArgPats.Pats []), Some scope ->
             [ Bound(current.Key, identifier.idText, scope) ]
+        | SynPat.LongIdent(longDotId = SynLongIdent(id = [ identifier ])), Some scope ->
+            match ancestors with
+            | SyntaxNode.SynBinding(SynBinding(headPat = head)) :: _ when Range.equals head.Range pattern.Range ->
+                [ Bound(current.Key, identifier.idText, scope) ]
+            | _ -> []
         | _ -> []
 
     let private parameterFacts current (SynBinding(headPat = pattern)) =
@@ -410,13 +429,16 @@ module Flows =
     let private dataFacts (SynBinding(headPat = pattern; isMutable = isMutable; expr = body)) parent ancestors =
         let container = createsContainer body
 
-        match parent, typeKeyOf ancestors with
-        | SyntaxNode.SynModule(SynModuleDecl.Let _), _
-        | SyntaxNode.SynMemberDefn(SynMemberDefn.LetBindings(isStatic = true)), _ when
-            container || isMutable || createsRef body
-            ->
+        let tracked = container || isMutable || createsRef body
+
+        let moduleData () =
             patternNames container pattern
-            |> List.map (fun (name, isContainer) -> ModuleData(name, isContainer))
+            |> List.map (fun (name, isContainer) ->
+                ModuleData(modulePathOf ancestors, name, tracked || isContainer, isContainer))
+
+        match parent, typeKeyOf ancestors with
+        | SyntaxNode.SynModule(SynModuleDecl.Let _), _ -> moduleData ()
+        | SyntaxNode.SynMemberDefn(SynMemberDefn.LetBindings(isStatic = true)), _ when tracked -> moduleData ()
         | SyntaxNode.SynMemberDefn(SynMemberDefn.LetBindings _), Some typeKey ->
             patternNames container pattern
             |> List.map (fun (name, isContainer) -> TypeData(typeKey, name, isContainer))
@@ -427,6 +449,10 @@ module Flows =
         | SyntaxNode.SynBinding binding, _, Some current when current.Key = bindingKey binding ->
             parameterFacts current binding
         | SyntaxNode.SynBinding binding, parent :: _, None -> dataFacts binding parent path
+        | SyntaxNode.SynModule(SynModuleDecl.Open(
+            target = SynOpenDeclTarget.ModuleOrNamespace(longId = SynLongIdent(id = identifiers)))),
+          _,
+          _ -> [ Open(modulePathOf path, names identifiers) ]
         | SyntaxNode.SynMemberDefn(SynMemberDefn.ImplicitCtor(ctorArgs = arguments)), _, _ ->
             match typeKeyOf path with
             | Some typeKey ->
@@ -491,9 +517,33 @@ module Flows =
         let moduleData =
             facts
             |> List.choose (function
-                | ModuleData(name, container) -> Some(name, container)
+                | ModuleData(path, name, tracked, container) -> Some((path, name), (tracked, container))
                 | _ -> None)
             |> Map.ofList
+
+        let opens =
+            facts
+            |> List.choose (function
+                | Open(path, target) -> Some(path, target)
+                | _ -> None)
+
+        let rec enclosing path =
+            match path with
+            | [] -> [ [] ]
+            | _ -> path :: enclosing (List.take (path.Length - 1) path)
+
+        /// Innermost module value an access names, from enclosing modules first, then opened modules.
+        let moduleValue current (identifiers: string list) =
+            let opened =
+                opens
+                |> List.filter (fun (path, _) -> List.truncate path.Length current.Path = path)
+                |> List.collect (fun (path, target) -> enclosing path |> List.map (fun prefix -> prefix @ target))
+
+            List.allPairs (enclosing current.Path @ opened) [ 0 .. identifiers.Length - 1 ]
+            |> List.tryPick (fun (prefix, qualifiers) ->
+                moduleData
+                |> Map.tryFind (prefix @ List.take qualifiers identifiers, identifiers[qualifiers])
+                |> Option.map (fun value -> String.concat "." (List.take (qualifiers + 1) identifiers), value))
 
         let isLocal current name accessRange =
             bound
@@ -517,12 +567,12 @@ module Flows =
                     current.TypeKey
                     |> Option.bind (fun typeKey -> typeData |> Map.tryFind (typeKey, root))
 
-                match parameters |> Map.tryFind (current.Key, root), typeContainer, moduleData |> Map.tryFind root with
+                match parameters |> Map.tryFind (current.Key, root), typeContainer, moduleValue current identifiers with
                 | _ when isLocal current root accessRange -> Local
                 | Some container, _, _ -> Argument(root, container)
                 | None, Some container, _ -> Data(TypeState, root, container)
-                | None, None, Some container -> Data(SharedState, root, container)
-                | None, None, None -> Unknown(String.concat "." identifiers)
+                | None, None, Some(name, (true, container)) -> Data(SharedState, name, container)
+                | None, None, _ -> Unknown(String.concat "." identifiers)
                 |> Some
             | [] -> None
 

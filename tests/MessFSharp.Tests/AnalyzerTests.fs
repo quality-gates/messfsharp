@@ -3509,3 +3509,30 @@ let compute () =
             |> List.filter (fun violation -> violation.Location.StartLine = 46 || violation.Location.StartLine = 47)
 
         Assert.All(accessors, fun violation -> Assert.Equal(Some "Label", violation.Context.Member))
+
+    [<Fact>]
+    let ``explicitness resolves module data by module path and local function names`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "explicitness-modules.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine, violation.Description)
+            |> List.sort
+
+        let expected =
+            [ "ImplicitInput",
+              7,
+              "'readQualified' reads mutable shared value 'State.count' instead of taking it as an argument."
+              "ImplicitOutput",
+              9,
+              "'addQualified' writes shared value 'State.items' instead of returning the new value."
+              "ImplicitInput",
+              21,
+              "'readOpened' reads mutable shared value 'items' instead of taking it as an argument."
+              "ImplicitInput", 38, "'afterLocal' reads mutable shared value 'log' instead of taking it as an argument." ]
+            |> List.sort
+
+        Assert.Equal<(string * int * string) list>(expected, actual)
