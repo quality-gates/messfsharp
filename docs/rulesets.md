@@ -67,7 +67,8 @@ Nested functions and lambdas belong to their enclosing module-level function
 or member. Locals, including local functions and parameters of nested lambdas,
 shadow outer names only within their own scope. Module values resolve from the
 innermost enclosing module outwards, then through `open` declarations; an
-`open` that shadows an earlier declaration of the same name is not modelled.
+`open` that shadows an earlier declaration of the same name is not modelled
+([#147](https://github.com/quality-gates/messfsharp/issues/147)).
 The analysis is syntactic only. It does not
 follow calls into other functions, does not see aliasing (including a type
 self identifier such as `type T() as self`), and does not treat exceptions or
@@ -75,6 +76,10 @@ self identifier such as `type T() as self`), and does not treat exceptions or
 (`let f = fun xs -> ...`) are treated as locals. Module-level values that are
 not functions, such as `let job = async { ... }`, have no owner and are not
 checked.
+
+The [exploratory testing report](exploratory-testing/2026-09-23-explicitness.md)
+records how these rules were exercised, the bugs fixed before release, and
+open questions.
 
 ```console
 messfsharp src text explicitness --ignore-tests
