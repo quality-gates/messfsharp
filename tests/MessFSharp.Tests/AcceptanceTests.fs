@@ -700,7 +700,10 @@ module AcceptanceTests =
             String.concat "," [ fixture "idiomatic-one.fs"; fixture "idiomatic-two.fs" ]
 
         let result =
-            PackagedTool.run [ paths; "json"; "codesize,naming,unusedcode,cleancode,design,controversial" ]
+            PackagedTool.run
+                [ paths
+                  "json"
+                  "codesize,naming,unusedcode,cleancode,design,controversial,explicitness,strictexplicitness" ]
 
         Assert.Equal(0, result.ExitCode)
         Assert.Equal("", result.StandardError)

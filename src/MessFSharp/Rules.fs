@@ -2112,6 +2112,83 @@ module Rules =
                         else
                             Some(sprintf "Variable name '%s' should use camelCase." declaration.Name)) }
 
+    let private flowDescription (flow: ImplicitFlow) =
+        let action =
+            match flow.Source, flow.Direction with
+            | SharedState, InputFlow -> "reads mutable shared value"
+            | SharedState, OutputFlow -> "writes shared value"
+            | TypeState, InputFlow -> "reads type data"
+            | TypeState, OutputFlow -> "writes type data"
+            | AmbientEffect, InputFlow -> "reads ambient input"
+            | AmbientEffect, OutputFlow -> "performs ambient output"
+            | ArgumentMutation, _ -> "mutates argument"
+
+        let remedy =
+            match flow.Direction, flow.Source with
+            | InputFlow, _ -> "instead of taking it as an argument"
+            | OutputFlow, AmbientEffect -> "instead of returning data"
+            | OutputFlow, ArgumentMutation -> "instead of returning a new value"
+            | OutputFlow, _ -> "instead of returning the new value"
+
+        sprintf "'%s' %s '%s' %s." flow.Owner action flow.Name remedy
+
+    let private implicitFlowRule name direction typeState description =
+        { Name = name
+          DefaultPriority = 3
+          DefaultProperties = Map.empty
+          Description = description
+          Check =
+            fun file selection ->
+                file.ImplicitFlows
+                |> List.filter (fun flow -> flow.Direction = direction && (flow.Source = TypeState) = typeState)
+                |> List.map (fun flow ->
+                    let owner =
+                        file.Declarations
+                        |> List.tryFind (fun declaration ->
+                            declaration.Name = flow.Owner
+                            && declaration.Location.StartLine <= flow.OwnerLine
+                            && flow.OwnerLine <= declaration.Location.EndLine
+                            && (declaration.Kind = Function
+                                || declaration.Kind = Member
+                                || declaration.Kind = Property
+                                || declaration.Kind = Constructor))
+
+                    { Location = flow.Location
+                      RuleName = selection.Name
+                      RulesetName = selection.RulesetName
+                      Priority = selection.Priority
+                      Description = flowDescription flow
+                      Context = context file owner
+                      HelpUri = ruleUri selection.Name }) }
+
+    let implicitInput =
+        implicitFlowRule
+            "ImplicitInput"
+            InputFlow
+            false
+            "Reports functions and members that read mutable shared state or ambient input instead of taking arguments."
+
+    let implicitOutput =
+        implicitFlowRule
+            "ImplicitOutput"
+            OutputFlow
+            false
+            "Reports functions and members that write shared state, mutate arguments, or perform I/O instead of returning values."
+
+    let implicitClassInput =
+        implicitFlowRule
+            "ImplicitClassInput"
+            InputFlow
+            true
+            "Reports members that read their own type's data instead of taking arguments."
+
+    let implicitClassOutput =
+        implicitFlowRule
+            "ImplicitClassOutput"
+            OutputFlow
+            true
+            "Reports members that change their own type's data instead of returning values."
+
     let all =
         [ cyclomaticComplexity
           nPathComplexity
@@ -2151,7 +2228,11 @@ module Rules =
           camelCaseMethodName
           camelCasePropertyName
           camelCaseParameterName
-          camelCaseVariableName ]
+          camelCaseVariableName
+          implicitInput
+          implicitOutput
+          implicitClassInput
+          implicitClassOutput ]
 
     let byName =
         all

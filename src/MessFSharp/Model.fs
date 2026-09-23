@@ -2138,4 +2138,5 @@ module Model =
           Expressions = syntaxFacts.Expressions
           ExceptionHandlerClauses = syntaxFacts.ExceptionHandlerClauses
           LexicalScopes = syntaxFacts.LexicalScopes
-          SyntacticReferences = syntaxFacts.References }
+          SyntacticReferences = syntaxFacts.References
+          ImplicitFlows = Flows.collect source.FullPath parsedInput }

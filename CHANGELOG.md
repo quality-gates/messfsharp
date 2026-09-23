@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add opt-in `explicitness` (`ImplicitInput`, `ImplicitOutput`) and `strictexplicitness` (`ImplicitClassInput`, `ImplicitClassOutput`) rulesets.
+
 ## 0.1.7
 
 - Preserve parenthesized binding type annotations (#124).

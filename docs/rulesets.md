@@ -11,6 +11,8 @@ configuration, and CI annotations. Built-in names are case-insensitive.
 | `cleancode` | `BooleanArgumentFlag`, `ElseExpression`, `StaticAccess`, `IfStatementAssignment`, `DuplicatedArrayKey` |
 | `design` | `ExitExpression`, `GotoStatement`, `CountInLoopExpression`, `DevelopmentCodeFragment`, `EmptyCatchBlock`, `CouplingBetweenObjects`, `GlobalVariable`, `LackOfCohesionOfMethods` |
 | `controversial` | `CamelCaseClassName`, `CamelCaseMethodName`, `CamelCasePropertyName`, `CamelCaseParameterName`, `CamelCaseVariableName` |
+| `explicitness` | `ImplicitInput`, `ImplicitOutput` |
+| `strictexplicitness` | `ImplicitClassInput`, `ImplicitClassOutput` |
 
 The recommended `fsharp` ruleset composes the catalog and deliberately leaves
 out `UnusedFormalParameter`, `ElseExpression`, `BooleanArgumentFlag`,
@@ -19,6 +21,61 @@ out `UnusedFormalParameter`, `ElseExpression`, `BooleanArgumentFlag`,
 contains the intentionally stricter checks omitted from that default:
 `UnusedFormalParameter`, `ElseExpression`, `BooleanArgumentFlag`,
 `StaticAccess`, `ShortVariable`, and `CountInLoopExpression`.
+
+## Explicitness
+
+The `explicitness` and `strictexplicitness` rulesets are opt-in and are not part
+of `fsharp`. They follow the implicit input and output model from *Grokking
+Simplicity*: a function's explicit inputs are its arguments and its explicit
+output is its return value; anything else is implicit.
+
+`ImplicitInput` reports a function or member that reads:
+
+- a module-level or `static let mutable`, `ref` cell, or mutable collection
+  (`ResizeArray`, `Dictionary`, `HashSet`, `StringBuilder`, and similar,
+  either constructed directly or annotated with the type); or
+- ambient input such as `DateTime.Now`, `Guid.NewGuid`, `Random.Shared`,
+  `Environment.GetEnvironmentVariable`, `Console.ReadLine`, `stdin`, and
+  `File`/`Directory` reads.
+
+Immutable module values are not inputs, because they cannot change between
+calls. Module-level arrays are also not treated as inputs when read, because
+they are usually lookup tables; writes to them are still outputs.
+
+`ImplicitOutput` reports a function or member that:
+
+- assigns (`<-`, `:=`, `incr`, `decr`, indexer set) to anything that is not
+  one of its own locals;
+- mutates an argument, either by assignment or by calling `Add`, `Remove`,
+  `Clear`, `Append`, and similar on a parameter annotated as a mutable
+  collection; or
+- performs ambient output such as `printfn`, `eprintfn`, `Console.WriteLine`,
+  `File.WriteAllText`, `Directory.CreateDirectory`, or setting
+  `Environment.CurrentDirectory`.
+
+`strictexplicitness` adds the same checks for a type's own data. It is
+intended to be combined with `explicitness`. `ImplicitClassInput` reports
+members that read `let` fields, primary constructor arguments, or `this.X`.
+`ImplicitClassOutput` reports members that assign to those fields or call a
+mutating method on a mutable collection field or `member val`. Calling or
+passing another method of the same type through the self identifier is not
+reported.
+
+Each owner reports a given name once per direction, at its first occurrence.
+Nested functions and lambdas belong to their enclosing module-level function
+or member. Locals, including parameters of nested lambdas, shadow outer names
+only within their own scope. The analysis is syntactic only. It does not
+follow calls into other functions, does not see aliasing (including a type
+self identifier such as `type T() as self`), and does not treat exceptions or
+`exit` as outputs. Arguments of a lambda-bodied binding
+(`let f = fun xs -> ...`) are treated as locals. Module-level values that are
+not functions, such as `let job = async { ... }`, have no owner and are not
+checked.
+
+```console
+messfsharp src text explicitness --ignore-tests
+messfsharp src text explicitness,strictexplicitness --ignore-tests
+```
 
 Default thresholds are cyclomatic complexity 10, NPath complexity 200, method
 length 100 lines, type length 1000 lines, parameter count 10, public count 45,
