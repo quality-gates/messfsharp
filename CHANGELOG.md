@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.1.8
 
-- Add opt-in `explicitness` (`ImplicitInput`, `ImplicitOutput`) and `strictexplicitness` (`ImplicitClassInput`, `ImplicitClassOutput`) rulesets.
+- Add opt-in `explicitness` (`ImplicitInput`, `ImplicitOutput`) and `strictexplicitness` (`ImplicitClassInput`, `ImplicitClassOutput`) rulesets (#148).
+- Resolve module values by source position to model open shadowing (#147, #149).
 
 ## 0.1.7
 
