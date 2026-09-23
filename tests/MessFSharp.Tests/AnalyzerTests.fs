@@ -3419,3 +3419,120 @@ let compute () =
 
         for name in [ "X"; "Y"; "Z" ] do
             Assert.Contains($"Parameter name '{name}' should use camelCase.", camelCase)
+
+    [<Fact>]
+    let ``explicitness rulesets report implicit inputs and outputs`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "explicitness.fs" ] [ "explicitness"; "strictexplicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine, violation.Description)
+            |> List.sort
+
+        let input = "ImplicitInput"
+        let output = "ImplicitOutput"
+        let classInput = "ImplicitClassInput"
+        let classOutput = "ImplicitClassOutput"
+
+        let expected =
+            [ input, 12, "'addToTotal' reads mutable shared value 'total' instead of taking it as an argument."
+              output, 12, "'addToTotal' writes shared value 'total' instead of returning the new value."
+              output, 13, "'addToTotal' performs ambient output 'printfn' instead of returning data."
+              input, 17, "'stamp' reads ambient input 'DateTime.Now' instead of taking it as an argument."
+              input, 19, "'bump' reads mutable shared value 'counter' instead of taking it as an argument."
+              output, 19, "'bump' writes shared value 'counter' instead of returning the new value."
+              output, 21, "'remember' writes shared value 'cache' instead of returning the new value."
+              output, 23, "'append' mutates argument 'items' instead of returning a new value."
+              classInput, 38, "'Increment' reads type data 'count' instead of taking it as an argument."
+              classOutput, 38, "'Increment' writes type data 'count' instead of returning the new value."
+              classInput, 39, "'Current' reads type data 'count' instead of taking it as an argument."
+              classOutput, 40, "'Rename' writes type data 'Label' instead of returning the new value."
+              classInput, 41, "'Log' reads type data 'Label' instead of taking it as an argument."
+              output, 41, "'Log' performs ambient output 'printfn' instead of returning data."
+              input, 42, "'Snapshot' reads mutable shared value 'total' instead of taking it as an argument." ]
+            |> List.sort
+
+        Assert.Equal<(string * int * string) list>(expected, actual)
+
+        let increment =
+            result.Report.Violations
+            |> List.find (fun violation -> violation.RuleName = classOutput && violation.Location.StartLine = 38)
+
+        Assert.Equal(Some "Counter", increment.Context.Type)
+        Assert.Equal(Some "Increment", increment.Context.Member)
+        Assert.Equal(31, increment.Location.StartColumn)
+
+    [<Fact>]
+    let ``explicitness rulesets respect scope, self calls, and ambient members`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                (options [ fixture "explicitness-edges.fs" ] [ "explicitness"; "strictexplicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine, violation.Description)
+            |> List.sort
+
+        let input = "ImplicitInput"
+        let output = "ImplicitOutput"
+        let classInput = "ImplicitClassInput"
+        let classOutput = "ImplicitClassOutput"
+
+        let expected =
+            [ input, 11, "'readName' reads ambient input 'stdin' instead of taking it as an argument."
+              output, 13, "'writeName' performs ambient output 'stdout' instead of returning data."
+              input, 24, "'snapshot' reads mutable shared value 'total' instead of taking it as an argument."
+              output, 28, "'publish' writes shared value 'total' instead of returning the new value."
+              input, 30, "'lookup' reads mutable shared value 'cache' instead of taking it as an argument."
+              input, 32, "'tick' reads mutable shared value 'counter' instead of taking it as an argument."
+              output, 32, "'tick' writes shared value 'counter' instead of returning the new value."
+              output, 38, "'moveTo' performs ambient output 'Environment.CurrentDirectory' instead of returning data."
+              classInput, 46, "'Label' reads type data 'Items' instead of taking it as an argument."
+              classOutput, 47, "'Label' writes type data 'Items' instead of returning the new value."
+              input, 50, "'Next' reads mutable shared value 'count' instead of taking it as an argument."
+              output, 50, "'Next' writes shared value 'count' instead of returning the new value."
+              classOutput, 53, "'Put' writes type data 'Items' instead of returning the new value."
+              classInput, 58, "'Both' reads type data 'Size' instead of taking it as an argument."
+              input, 58, "'Both' reads mutable shared value 'total' instead of taking it as an argument." ]
+            |> List.sort
+
+        Assert.Equal<(string * int * string) list>(expected, actual)
+
+        let accessors =
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.Location.StartLine = 46 || violation.Location.StartLine = 47)
+
+        Assert.All(accessors, fun violation -> Assert.Equal(Some "Label", violation.Context.Member))
+
+    [<Fact>]
+    let ``explicitness resolves module data by module path and local function names`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "explicitness-modules.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine, violation.Description)
+            |> List.sort
+
+        let expected =
+            [ "ImplicitInput",
+              7,
+              "'readQualified' reads mutable shared value 'State.count' instead of taking it as an argument."
+              "ImplicitOutput",
+              9,
+              "'addQualified' writes shared value 'State.items' instead of returning the new value."
+              "ImplicitInput",
+              21,
+              "'readOpened' reads mutable shared value 'items' instead of taking it as an argument."
+              "ImplicitInput", 38, "'afterLocal' reads mutable shared value 'log' instead of taking it as an argument." ]
+            |> List.sort
+
+        Assert.Equal<(string * int * string) list>(expected, actual)

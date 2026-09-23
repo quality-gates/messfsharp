@@ -61,7 +61,9 @@ module Rulesets =
              "CamelCaseMethodName"
              "CamelCasePropertyName"
              "CamelCaseParameterName"
-             "CamelCaseVariableName" ]) ]
+             "CamelCaseVariableName" ])
+          ("explicitness", [ "ImplicitInput"; "ImplicitOutput" ])
+          ("strictexplicitness", [ "ImplicitClassInput"; "ImplicitClassOutput" ]) ]
 
     let private componentMap =
         componentRulesets |> List.map (fun (name, rules) -> name, rules) |> Map.ofList
@@ -74,7 +76,11 @@ module Rulesets =
               "StaticAccess"
               "ShortVariable"
               "LongVariable"
-              "CountInLoopExpression" ]
+              "CountInLoopExpression"
+              "ImplicitInput"
+              "ImplicitOutput"
+              "ImplicitClassInput"
+              "ImplicitClassOutput" ]
 
     let private fsharpRules =
         (componentRulesets
@@ -97,7 +103,9 @@ module Rulesets =
         | "unusedcode"
         | "cleancode"
         | "design"
-        | "controversial" ->
+        | "controversial"
+        | "explicitness"
+        | "strictexplicitness" ->
             componentMap
             |> Map.tryFind (name.ToLowerInvariant())
             |> Option.map (fun rules -> name.ToLowerInvariant(), rules)

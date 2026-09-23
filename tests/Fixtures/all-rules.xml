@@ -39,4 +39,8 @@
   <rule name="CamelCasePropertyName" />
   <rule name="CamelCaseParameterName" />
   <rule name="CamelCaseVariableName" />
+  <rule name="ImplicitInput" />
+  <rule name="ImplicitOutput" />
+  <rule name="ImplicitClassInput" />
+  <rule name="ImplicitClassOutput" />
 </ruleset>

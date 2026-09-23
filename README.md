@@ -63,8 +63,11 @@ dotnet tool run messfsharp --version
 ## Tune the gate
 
 Start with `fsharp`. Add `opinionated` when you want the stricter checks the
-recommended set leaves out. Point at a custom XML ruleset when thresholds or
-membership need to live in the repo — see [docs/ruleset-schema.md](docs/ruleset-schema.md).
+recommended set leaves out. Add `explicitness` (and `strictexplicitness` for
+class data) to flag implicit inputs and outputs — see
+[docs/rulesets.md](docs/rulesets.md#explicitness). Point at a custom XML
+ruleset when thresholds or membership need to live in the repo — see
+[docs/ruleset-schema.md](docs/ruleset-schema.md).
 
 ```console
 messfsharp src text path/to/team-policy.xml --ignore-tests

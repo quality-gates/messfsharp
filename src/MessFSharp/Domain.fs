@@ -100,6 +100,25 @@ module Domain =
         { Name: string
           Location: SourceLocation }
 
+    type FlowDirection =
+        | InputFlow
+        | OutputFlow
+
+    type FlowSource =
+        | SharedState
+        | AmbientEffect
+        | ArgumentMutation
+        | TypeState
+
+    /// Data entering or leaving a function or member other than through its arguments or return value.
+    type ImplicitFlow =
+        { Direction: FlowDirection
+          Source: FlowSource
+          Name: string
+          Owner: string
+          OwnerLine: int
+          Location: SourceLocation }
+
     type Declaration =
         { Name: string
           Kind: DeclarationKind
@@ -154,7 +173,8 @@ module Domain =
           Expressions: NormalizedExpression list
           ExceptionHandlerClauses: SourceLocation list
           LexicalScopes: LexicalScope list
-          SyntacticReferences: SyntacticReference list }
+          SyntacticReferences: SyntacticReference list
+          ImplicitFlows: ImplicitFlow list }
 
     type SymbolContext =
         { Namespace: string option

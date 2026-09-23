@@ -50,7 +50,9 @@ module CatalogTests =
             "CamelCaseMethodName"
             "CamelCasePropertyName"
             "CamelCaseParameterName"
-            "CamelCaseVariableName" ] ]
+            "CamelCaseVariableName" ]
+          "explicitness", [ "ImplicitInput"; "ImplicitOutput" ]
+          "strictexplicitness", [ "ImplicitClassInput"; "ImplicitClassOutput" ] ]
 
     let private loaded name =
         match Rulesets.load [ name ] with
@@ -78,7 +80,11 @@ module CatalogTests =
                   "BooleanArgumentFlag"
                   "StaticAccess"
                   "ShortVariable"
-                  "CountInLoopExpression" ]
+                  "CountInLoopExpression"
+                  "ImplicitInput"
+                  "ImplicitOutput"
+                  "ImplicitClassInput"
+                  "ImplicitClassOutput" ]
 
         let allRules = components |> List.collect snd |> Set.ofList
         let recommended = loaded "fsharp"

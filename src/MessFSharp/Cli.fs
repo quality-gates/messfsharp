@@ -18,7 +18,8 @@ Paths are comma-separated files or directories. Formats are:
   text, xml, json, html, ansi, github, gitlab, checkstyle, sarif
 
 Rulesets are: fsharp, cleancode, codesize, controversial, design,
-  naming, unusedcode, opinionated, or a custom XML ruleset path.
+  naming, unusedcode, opinionated, explicitness, strictexplicitness,
+  or a custom XML ruleset path.
 
 Options:
   --minimumpriority <1..5>       Retain priorities less than or equal to this value.
