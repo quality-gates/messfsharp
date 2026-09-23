@@ -3536,3 +3536,21 @@ let compute () =
             |> List.sort
 
         Assert.Equal<(string * int * string) list>(expected, actual)
+
+    [<Fact>]
+    let ``explicitness resolves module value shadowed by later open`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "OpenShadow.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine, violation.Description)
+            |> List.sort
+
+        let expected =
+            [ "ImplicitInput", 10, "'get' reads mutable shared value 'count' instead of taking it as an argument." ]
+            |> List.sort
+
+        Assert.Equal<(string * int * string) list>(expected, actual)

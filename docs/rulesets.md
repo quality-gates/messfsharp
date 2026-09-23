@@ -66,9 +66,7 @@ Each owner reports a given name once per direction, at its first occurrence.
 Nested functions and lambdas belong to their enclosing module-level function
 or member. Locals, including local functions and parameters of nested lambdas,
 shadow outer names only within their own scope. Module values resolve from the
-innermost enclosing module outwards, then through `open` declarations; an
-`open` that shadows an earlier declaration of the same name is not modelled
-([#147](https://github.com/quality-gates/messfsharp/issues/147)).
+innermost enclosing module outwards, then through `open` declarations.
 The analysis is syntactic only. It does not
 follow calls into other functions, does not see aliasing (including a type
 self identifier such as `type T() as self`), and does not treat exceptions or
