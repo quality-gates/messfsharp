@@ -126,7 +126,7 @@ module Engine =
         { ToolName = toolName
           Version = version
           Violations = []
-          Errors = errors }
+          Errors = sortErrors errors }
 
     let run version options =
         let reportWithRulesetErrors rulesetErrors warnings =
@@ -170,22 +170,24 @@ module Engine =
                 let violations = ResizeArray<Violation>()
 
                 for file in analyzedFiles do
-                    for violation in
-                        runRules file filtered.Selections
-                        |> distinctViolations
-                        |> applySuppression options.Strict file do
+                    for violation in runRules file filtered.Selections |> applySuppression options.Strict file do
                         violations.Add(violation)
 
                 let report =
                     { ToolName = toolName
                       Version = version
-                      Violations = violations |> Seq.toList |> distinctViolations |> sortViolations
-                      Errors = processingErrors |> Seq.toList |> sortErrors }
+                      Violations = violations |> Seq.toList |> distinctViolations
+                      Errors = processingErrors |> Seq.toList }
 
                 let baseDirectory =
                     options.BaseDirectory |> Option.defaultValue (Directory.GetCurrentDirectory())
 
                 let report = PathDisplay.report baseDirectory report
+
+                let report =
+                    { report with
+                        Violations = sortViolations report.Violations
+                        Errors = sortErrors report.Errors }
 
                 { Report = report
                   Warnings = filtered.Warnings
@@ -193,7 +195,7 @@ module Engine =
 
     let writeReport options report =
         try
-            let content = Reports.render options.Format options.Color report
+            let content = Reporter.format options.Format options.Color report
 
             match options.ReportFile with
             | None ->

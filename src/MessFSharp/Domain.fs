@@ -196,6 +196,11 @@ module Domain =
           Context: SymbolContext
           HelpUri: string option }
 
+    /// A compiled report with violations and errors ordered for rendering.
+    /// Direct callers must sort violations by ordinal file name, start line,
+    /// end line, ordinal rule name, and ordinal description. Sort errors by
+    /// ordinal file name, start line, and ordinal message. Use an empty file
+    /// name and line 0 when an error has no file or location.
     type Report =
         { ToolName: string
           Version: string
