@@ -24,10 +24,7 @@ module internal XmlReporter =
             element.SetAttributeValue(XName.Get "helpUri", violation.HelpUri |> Option.defaultValue "")
             element.Add(XElement(XName.Get "description", violation.Description))
             let context = XElement(XName.Get "context")
-            context.SetAttributeValue(XName.Get "namespace", violation.Context.Namespace |> Option.defaultValue "")
-            context.SetAttributeValue(XName.Get "module", violation.Context.Module |> Option.defaultValue "")
-            context.SetAttributeValue(XName.Get "type", violation.Context.Type |> Option.defaultValue "")
-            context.SetAttributeValue(XName.Get "member", violation.Context.Member |> Option.defaultValue "")
+            ReportSupport.addXmlContextAttributes context violation.Context
             element.Add(context)
             violations.Add(element)
 

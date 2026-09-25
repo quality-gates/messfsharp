@@ -34,10 +34,7 @@ module internal CheckstyleReporter =
                 error.SetAttributeValue(XName.Get "source", sprintf "messfsharp.%s" violation.RuleName)
                 error.SetAttributeValue(XName.Get "ruleset", violation.RulesetName)
                 error.SetAttributeValue(XName.Get "priority", violation.Priority)
-                error.SetAttributeValue(XName.Get "namespace", violation.Context.Namespace |> Option.defaultValue "")
-                error.SetAttributeValue(XName.Get "module", violation.Context.Module |> Option.defaultValue "")
-                error.SetAttributeValue(XName.Get "type", violation.Context.Type |> Option.defaultValue "")
-                error.SetAttributeValue(XName.Get "member", violation.Context.Member |> Option.defaultValue "")
+                ReportSupport.addXmlContextAttributes error violation.Context
                 error.SetAttributeValue(XName.Get "helpUri", violation.HelpUri |> Option.defaultValue "")
                 fileElement.Add(error)
 
