@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.9
+
+- Route all report formats through a single `Reporter` seam; report output is unchanged (#152, #153).
+
 ## 0.1.8
 
 - Add opt-in `explicitness` (`ImplicitInput`, `ImplicitOutput`) and `strictexplicitness` (`ImplicitClassInput`, `ImplicitClassOutput`) rulesets (#148).
