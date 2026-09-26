@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.10
+
+- Resolve ambient identifiers against in-scope bindings so shadowed names are not reported as ambient I/O (#155, #159).
+- Recognize standard terminating functions in `ElseExpression` (#156, #160).
+
 ## 0.1.9
 
 - Route all report formats through a single `Reporter` seam; report output is unchanged (#152, #153).
