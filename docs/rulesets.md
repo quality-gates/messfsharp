@@ -75,9 +75,9 @@ self identifier such as `type T() as self`), and does not treat exceptions or
 not functions, such as `let job = async { ... }`, have no owner and are not
 checked.
 
-The [exploratory testing report](exploratory-testing/2026-09-23-explicitness.md)
-records how these rules were exercised, the bugs fixed before release, and
-open questions.
+The exploratory testing reports ([2026-09-23](exploratory-testing/2026-09-23-explicitness.md),
+[2026-09-26](exploratory-testing/2026-09-26-messfsharp.md))
+record how these rules were exercised, bugs found, and open questions.
 
 ```console
 messfsharp src text explicitness --ignore-tests
