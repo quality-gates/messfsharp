@@ -261,8 +261,10 @@ module Rules =
                    binding.Name = declaration.Name
                    && binding.Location.StartLine = declaration.Location.StartLine
                    && binding.Kind = declaration.Kind)
-            && ((index + 1 < file.Tokens.Length
-                 && (file.Tokens[index + 1].Text = "<-" || file.Tokens[index + 1].Text = ":="))
+            && ((index > 0
+                 && (file.Tokens[index - 1].Text = "incr" || file.Tokens[index - 1].Text = "decr"))
+                || (index + 1 < file.Tokens.Length
+                    && (file.Tokens[index + 1].Text = "<-" || file.Tokens[index + 1].Text = ":="))
                 || (index + 3 < file.Tokens.Length
                     && file.Tokens[index + 1].Text = "."
                     && file.Tokens[index + 2].Text = "Value"
