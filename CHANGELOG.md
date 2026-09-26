@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.11
+
+- Detect module-level ref cell mutations through `incr` and `decr` (#157, #162).
+
 ## 0.1.10
 
 - Resolve ambient identifiers against in-scope bindings so shadowed names are not reported as ambient I/O (#155, #159).
