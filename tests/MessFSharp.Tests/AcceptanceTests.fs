@@ -249,6 +249,33 @@ module AcceptanceTests =
         )
 
     [<Fact>]
+    let ``packaged executable recognizes standard terminating functions in else expressions`` () =
+        let source = relativeFixture "issue-156-terminating-functions.fs"
+
+        let result =
+            PackagedTool.run [ source; "text"; "cleancode"; "--only"; "ElseExpression" ]
+
+        Assert.Equal(2, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        let description =
+            "ElseExpression: An else branch follows an unconditional terminating expression and can be flattened."
+
+        Assert.Equal(
+            String.concat
+                newline
+                [ $"{source}:4:{description}"
+                  $"{source}:9:{description}"
+                  $"{source}:13:{description}"
+                  $"{source}:18:{description}"
+                  $"{source}:22:{description}"
+                  $"{source}:24:{description}"
+                  $"{source}:28:{description}" ]
+            + newline,
+            result.StandardOutput
+        )
+
+    [<Fact>]
     let ``packaged executable detects duplicate KeyValuePair keys in qualified Dictionary constructor`` () =
         let source = fixture "issue-84-qualified-dictionary.fs"
 

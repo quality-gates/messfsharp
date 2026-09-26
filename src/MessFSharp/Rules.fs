@@ -309,10 +309,19 @@ module Rules =
         || exceptions
            |> List.exists (fun exceptionName -> String.Equals(exceptionName, name, StringComparison.Ordinal))
 
+    let private terminatingIdentifiers =
+        [ "failwith"
+          "failwithf"
+          "invalidarg"
+          "invalidop"
+          "nullarg"
+          "raise"
+          "reraise" ]
+        |> Set.ofList
+
     let private isTerminatingIdentifier (token: SyntaxToken) =
         token.Kind = Identifier
-        && (String.Equals(token.Text, "failwith", StringComparison.OrdinalIgnoreCase)
-            || String.Equals(token.Text, "raise", StringComparison.OrdinalIgnoreCase))
+        && terminatingIdentifiers.Contains(token.Text.ToLowerInvariant())
 
     let private isEnvironmentExit (tokens: SyntaxToken array) index =
         index + 2 < tokens.Length
