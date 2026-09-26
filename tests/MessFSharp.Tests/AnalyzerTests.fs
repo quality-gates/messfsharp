@@ -3554,3 +3554,11 @@ let compute () =
             |> List.sort
 
         Assert.Equal<(string * int * string) list>(expected, actual)
+
+    [<Fact>]
+    let ``shadowed ambient identifiers are not reported as ambient IO violations`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "issue-155-shadowed-ambient.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+        Assert.Empty(result.Report.Violations)

@@ -23,7 +23,7 @@ module Flows =
         | Read of string list
         | Write of string list
         | MutatingCall of string list
-        | Ambient of FlowDirection * string
+        | Ambient of FlowDirection * string * string list
 
     type private Fact =
         | Parameter of (int * int) * string * bool
@@ -39,6 +39,7 @@ module Flows =
         | Argument of string * bool
         | Local
         | Data of FlowSource * string * bool
+        | ModuleValue of string
         | Unknown of string
 
     let private ambientMembers =
@@ -328,7 +329,7 @@ module Flows =
         let found table name =
             table
             |> Map.tryFind name
-            |> Option.map (fun direction -> Ambient(direction, name))
+            |> Option.map (fun direction -> Ambient(direction, name, identifiers))
 
         match identifiers |> List.skipWhile namespaceSegments.Contains with
         | typeName :: memberName :: _ when ambientMembers.ContainsKey(typeName + "." + memberName) ->
@@ -359,7 +360,7 @@ module Flows =
             longIdentAccess ancestors expression.Range (names identifiers)
         | SynExpr.LongIdentSet(longDotId = SynLongIdent(id = identifiers)) ->
             match ambientAccess (names identifiers) with
-            | Some(Ambient(_, name)) -> Some(Ambient(OutputFlow, name))
+            | Some(Ambient(_, name, _)) -> Some(Ambient(OutputFlow, name, names identifiers))
             | _ -> Some(Write(names identifiers))
         | SynExpr.DotSet(targetExpr = target; longDotId = SynLongIdent(id = identifiers)) ->
             Some(Write(rootNames target @ names identifiers))
@@ -616,7 +617,8 @@ module Flows =
                 | Some container, _, _ -> Argument(root, container)
                 | None, Some container, _ -> Data(TypeState, root, container)
                 | None, None, Some(name, (true, container)) -> Data(SharedState, name, container)
-                | None, None, _ -> Unknown(String.concat "." identifiers)
+                | None, None, Some(name, (false, _)) -> ModuleValue name
+                | None, None, None -> Unknown(String.concat "." identifiers)
                 |> Some
             | [] -> None
 
@@ -635,7 +637,18 @@ module Flows =
         let resolve current identifiers = resolve current identifiers accessRange
 
         match access with
-        | Ambient(direction, name) -> make direction (AmbientEffect, name)
+        | Ambient(direction, name, identifiers) ->
+            match resolve current identifiers with
+            | Some Local
+            | Some(Argument _)
+            | Some(ModuleValue _) -> None
+            | Some(Data(source, dataName, _)) ->
+                if name = "Environment.CurrentDirectory" then
+                    make OutputFlow (source, dataName)
+                else
+                    make InputFlow (source, dataName)
+            | Some(Unknown _)
+            | None -> make direction (AmbientEffect, name)
         | Read identifiers ->
             match resolve current identifiers with
             | Some(Data(source, name, _)) -> make InputFlow (source, name)
