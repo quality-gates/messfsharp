@@ -719,6 +719,7 @@ module Model =
           ScopeEndLine = scopeEnd
           BodyStartLine = bodyStart
           BodyEndLine = bodyEnd
+          VisibleFrom = bodyEnd + 1, 1
           Text = text }
 
     let private nearestParent (declarations: Declaration list) line =
@@ -800,13 +801,15 @@ module Model =
             |> List.groupBy (fun (declaration, _) -> declaration.Name)
             |> Map.ofList
 
+        // A value is not visible in its own right-hand side. This keeps `let x = x + 1` a use of the outer `x`.
+        let insideValueBody (token: SyntaxToken) (candidate: Declaration) =
+            candidate.Kind = Value
+            && not candidate.IsFunction
+            && (token.Line, token.Column) < candidate.VisibleFrom
+
         let visibleAt (token: SyntaxToken) (candidate: Declaration, (startLine, endLine)) =
             candidate.Location.StartLine <= token.Line
-            && not (
-                candidate.Kind = Value
-                && not candidate.IsFunction
-                && token.Line <= candidate.BodyEndLine
-            )
+            && not (insideValueBody token candidate)
             && token.Line >= startLine
             && token.Line <= endLine
 
@@ -1911,6 +1914,31 @@ module Model =
 
         sameSourceLocation && (sameName || normalizedOperatorName)
 
+    // The text scan cannot find the end of a right-hand side, so a use after `in` on the same line is not visible.
+    // Use the compiler range of the right-hand side when it ends before the text scan body end.
+    let private applyCompilerBodyEnds (facts: SyntaxModel.Facts) (declarations: Declaration list) =
+        let bodyEnd (declaration: Declaration) =
+            facts.Declarations
+            |> List.filter (fun fact ->
+                fact.Name = declaration.Name
+                && fact.Location.StartLine = declaration.Location.StartLine)
+            |> List.sortBy (fun fact -> fact.Location.StartColumn)
+            |> List.tryHead
+            |> Option.bind (fun fact -> fact.BodyLocation)
+            |> Option.map (fun body -> body.EndLine, body.EndColumn)
+            |> Option.filter (fun position -> position < declaration.VisibleFrom)
+
+        declarations
+        |> List.map (fun declaration ->
+            if declaration.Kind <> Value || declaration.IsFunction then
+                declaration
+            else
+                match bodyEnd declaration with
+                | Some position ->
+                    { declaration with
+                        VisibleFrom = position }
+                | None -> declaration)
+
     let private addCompilerBindings source (facts: SyntaxModel.Facts) (declarations: Declaration list) =
         let result = ResizeArray<Declaration>(declarations :> seq<Declaration>)
 
@@ -2039,6 +2067,7 @@ module Model =
             buildBaseDeclarations source syntaxFacts
             |> applyCompilerTypeShapes syntaxFacts
             |> addCompilerBindings source syntaxFacts
+            |> applyCompilerBodyEnds syntaxFacts
 
         let withConstructors = addConstructors source baseDeclarations
         let withCases = addUnionCases source withConstructors

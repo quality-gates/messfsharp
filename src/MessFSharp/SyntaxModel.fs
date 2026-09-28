@@ -23,6 +23,7 @@ module SyntaxModel =
           IsMutable: bool
           ParameterCount: int
           HasImplicitInput: bool
+          BodyLocation: SourceLocation option
           Parameters: (string * SourceLocation) list }
 
     type Facts =
@@ -242,6 +243,7 @@ module SyntaxModel =
                 IsMutable = isMutable
                 ParameterCount = parameterCount
                 HasImplicitInput = parameterCount = 0 && hasImplicitInput body
+                BodyLocation = Some(location fileName body.Range)
                 Parameters = parameters } ]
         | None ->
             parameterPatterns pattern
@@ -252,6 +254,7 @@ module SyntaxModel =
                   IsMutable = isMutable
                   ParameterCount = 0
                   HasImplicitInput = false
+                  BodyLocation = Some(location fileName body.Range)
                   Parameters = [] })
 
     let normalize fileName (parsedInput: ParsedInput) =
@@ -273,6 +276,7 @@ module SyntaxModel =
                       IsMutable = false
                       ParameterCount = 0
                       HasImplicitInput = false
+                      BodyLocation = None
                       Parameters = [] }
 
                 fact :: declarations,
@@ -291,6 +295,7 @@ module SyntaxModel =
                       IsMutable = false
                       ParameterCount = 0
                       HasImplicitInput = false
+                      BodyLocation = None
                       Parameters = [] }
 
                 fact :: declarations,
