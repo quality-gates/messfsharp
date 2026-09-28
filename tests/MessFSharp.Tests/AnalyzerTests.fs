@@ -477,6 +477,37 @@ let workflow = async {
         Assert.False(resultDeclaration.IsModuleLevel)
 
     [<Fact>]
+    let ``let in bindings used on the same line are not unused`` () =
+        let analyzed =
+            analyzeSource
+                """module Sample
+
+let used () =
+    let value = 1 in value
+
+let unused () =
+    let value = 1 in 0
+
+let shadowed () =
+    let x = 1 in let x = x + 1 in x
+"""
+
+        let selection =
+            { Name = "UnusedLocalVariable"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule =
+            Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
+
+        Assert.Equal<(int * string) list>(
+            [ 7, "Local binding 'value' is never used." ],
+            rule.Check analyzed selection
+            |> List.map (fun violation -> violation.Location.StartLine, violation.Description)
+        )
+
+    [<Fact>]
     let ``used let bang bindings inside module-level computation values are not unused`` () =
         let analyzed =
             analyzeSource

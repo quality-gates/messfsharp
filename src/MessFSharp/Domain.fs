@@ -148,6 +148,7 @@ module Domain =
           ScopeEndLine: int
           BodyStartLine: int
           BodyEndLine: int
+          VisibleFrom: int * int
           Text: string }
 
     let isChildOf (parent: Declaration) (child: Declaration) =
