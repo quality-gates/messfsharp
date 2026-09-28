@@ -248,11 +248,14 @@ module Domain =
 
     [<RequireQualifiedAccess>]
     module SourceFile =
+        let splitLines (text: string) =
+            text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')
+
         let ofText (path: string) (kind: SourceKind) (text: string) =
             { FullPath = path
               Kind = kind
               Text = text
-              Lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n') }
+              Lines = splitLines text }
 
     [<RequireQualifiedAccess>]
     module SourceKind =
