@@ -247,6 +247,14 @@ module Domain =
         | Invalid of string
 
     [<RequireQualifiedAccess>]
+    module SourceFile =
+        let ofText (path: string) (kind: SourceKind) (text: string) =
+            { FullPath = path
+              Kind = kind
+              Text = text
+              Lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n') }
+
+    [<RequireQualifiedAccess>]
     module SourceKind =
         let ofPath (path: string) =
             match IO.Path.GetExtension(path).ToLowerInvariant() with

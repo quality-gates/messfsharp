@@ -16,13 +16,7 @@ module Engine =
 
     let private sourceFile path =
         try
-            let text = File.ReadAllText(path)
-
-            Ok
-                { FullPath = path
-                  Kind = SourceKind.ofPath path
-                  Text = text
-                  Lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n') }
+            Ok(SourceFile.ofText path (SourceKind.ofPath path) (File.ReadAllText path))
         with ex ->
             Error
                 { File = Some path
@@ -111,6 +105,17 @@ module Engine =
                 else
                     StringComparer.Ordinal.Compare(left.Message, right.Message))
 
+    let analyzeSource strict selections source =
+        match Parsing.parse source with
+        | Error errors -> Error errors
+        | Ok parsedInput ->
+            let file = Model.analyze source parsedInput
+
+            runRules file selections
+            |> applySuppression strict file
+            |> distinctViolations
+            |> Ok
+
     let private calculateExitCode options report =
         let hasErrors = not (List.isEmpty report.Errors)
         let hasViolations = not (List.isEmpty report.Violations)
@@ -155,23 +160,19 @@ module Engine =
                 for error in discoveryErrors do
                     processingErrors.Add(error)
 
-                let analyzedFiles = ResizeArray<AnalyzedFile>()
+                let violations = ResizeArray<Violation>()
 
                 for path in discoveredFiles do
                     match sourceFile path with
                     | Error error -> processingErrors.Add(error)
                     | Ok source ->
-                        match Parsing.parse source with
+                        match analyzeSource options.Strict filtered.Selections source with
                         | Error errors ->
                             for error in errors do
                                 processingErrors.Add(error)
-                        | Ok parsedInput -> analyzedFiles.Add(Model.analyze source parsedInput)
-
-                let violations = ResizeArray<Violation>()
-
-                for file in analyzedFiles do
-                    for violation in runRules file filtered.Selections |> applySuppression options.Strict file do
-                        violations.Add(violation)
+                        | Ok fileViolations ->
+                            for violation in fileViolations do
+                                violations.Add(violation)
 
                 let report =
                     { ToolName = toolName
