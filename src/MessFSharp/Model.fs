@@ -312,11 +312,7 @@ module Model =
         attributes.IndexOf("CompilerGenerated", StringComparison.OrdinalIgnoreCase) >= 0
 
     let private isBooleanText (text: string) =
-        let sourceForText =
-            { FullPath = "<declaration>"
-              Kind = Implementation
-              Text = text
-              Lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n') }
+        let sourceForText = SourceFile.ofText "<declaration>" Implementation text
 
         let tokens = Scanner.scan sourceForText
 
@@ -458,11 +454,7 @@ module Model =
     let private parseParameterInfos (text: string) (rawDeclarationName: string) =
         let declarationName = rawDeclarationName.Trim('`')
 
-        let sourceForDeclaration =
-            { FullPath = "<declaration>"
-              Kind = Implementation
-              Text = text
-              Lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n') }
+        let sourceForDeclaration = SourceFile.ofText "<declaration>" Implementation text
 
         let tokens = Scanner.scan sourceForDeclaration
 

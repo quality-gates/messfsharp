@@ -797,7 +797,7 @@ module Rules =
         constructions |> Seq.toList
 
     let private meaningfulLineCount (nonCodeLines: Set<int>) (declaration: Declaration) =
-        declaration.Text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')
+        SourceFile.splitLines declaration.Text
         |> Array.mapi (fun index line -> declaration.Location.StartLine + index, line)
         |> Array.filter (fun (lineNumber, line) ->
             let trimmed = line.Trim()

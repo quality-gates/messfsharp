@@ -18,14 +18,38 @@ module AnalyzerTests =
 
     let private analyzeSource text =
         let source =
-            { FullPath = Path.Combine(Path.GetTempPath(), "messfsharp-model.fs")
-              Kind = Implementation
-              Text = text
-              Lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n') }
+            SourceFile.ofText (Path.Combine(Path.GetTempPath(), "messfsharp-model.fs")) Implementation text
 
         match Parsing.parse source with
         | Ok parsedInput -> Model.analyze source parsedInput
         | Error errors -> failwithf "Expected valid F# source, got %A" errors
+
+    let private namingSelections =
+        [ "ShortClassName"
+          "LongClassName"
+          "ShortVariable"
+          "LongVariable"
+          "ShortMethodName"
+          "ConstantNamingConventions"
+          "BooleanGetMethodName" ]
+        |> List.map (fun name ->
+            match Rules.byName |> Map.tryFind (name.ToLowerInvariant()) with
+            | Some rule ->
+                { Name = rule.Name
+                  RulesetName = "naming"
+                  Priority = rule.DefaultPriority
+                  Properties = rule.DefaultProperties }
+            | None -> failwithf "Unknown rule '%s'." name)
+
+    [<Fact>]
+    let ``source file of text normalizes carriage returns into lines`` () =
+        let source =
+            SourceFile.ofText "sample.fs" Implementation "let a = 1\r\nlet b = 2\rlet c = 3\n"
+
+        Assert.Equal("sample.fs", source.FullPath)
+        Assert.Equal(Implementation, source.Kind)
+        Assert.Equal("let a = 1\r\nlet b = 2\rlet c = 3\n", source.Text)
+        Assert.Equal<string>([| "let a = 1"; "let b = 2"; "let c = 3"; "" |], source.Lines)
 
     [<Fact>]
     let ``prefix generic parameters and inline attributes are registered as type declarations`` () =
@@ -2262,48 +2286,43 @@ let ab = 1
     [<Fact>]
     let ``suppress message on let binding with preceding attribute suppresses rule violation`` () =
         let source =
-            """module TestSuppression
+            SourceFile.ofText
+                "in-memory.fs"
+                Implementation
+                """module TestSuppression
 open System.Diagnostics.CodeAnalysis
 
 [<SuppressMessage("messfsharp", "ShortVariable")>]
 let v = 1
 """
 
-        let tempFile =
-            Path.Combine(Path.GetTempPath(), $"messfsharp-suppress-{Guid.NewGuid()}.fs")
-
-        try
-            File.WriteAllText(tempFile, source)
-            let result = Engine.run "0.1.0" (options [ tempFile ] [ "naming" ] Json)
-            Assert.Empty(result.Report.Errors)
-            Assert.Empty(result.Report.Violations)
-        finally
-            File.Delete(tempFile)
+        match Engine.analyzeSource false namingSelections source with
+        | Error errors -> failwithf "Expected analysis to succeed, got %A" errors
+        | Ok violations -> Assert.Empty(violations)
 
     [<Fact>]
     let ``suppress message on the declaration line itself suppresses rule violation`` () =
         let source =
-            """module TestSameLineSuppression
+            SourceFile.ofText
+                "in-memory.fs"
+                Implementation
+                """module TestSameLineSuppression
 open System.Diagnostics.CodeAnalysis
 
 [<SuppressMessage("messfsharp", "ShortVariable")>] let v = 1
 """
 
-        let tempFile =
-            Path.Combine(Path.GetTempPath(), $"messfsharp-suppress-{Guid.NewGuid()}.fs")
-
-        try
-            File.WriteAllText(tempFile, source)
-            let result = Engine.run "0.1.0" (options [ tempFile ] [ "naming" ] Json)
-            Assert.Empty(result.Report.Errors)
-            Assert.Empty(result.Report.Violations)
-        finally
-            File.Delete(tempFile)
+        match Engine.analyzeSource false namingSelections source with
+        | Error errors -> failwithf "Expected analysis to succeed, got %A" errors
+        | Ok violations -> Assert.Empty(violations)
 
     [<Fact>]
     let ``suppress message with intervening comment or doc comment suppresses rule violation`` () =
         let source =
-            """module TestCommentSuppression
+            SourceFile.ofText
+                "in-memory.fs"
+                Implementation
+                """module TestCommentSuppression
 open System.Diagnostics.CodeAnalysis
 
 [<SuppressMessage("messfsharp", "ShortVariable")>]
@@ -2315,16 +2334,36 @@ let v = 1
 let w = 2
 """
 
-        let tempFile =
-            Path.Combine(Path.GetTempPath(), $"messfsharp-suppress-{Guid.NewGuid()}.fs")
+        match Engine.analyzeSource false namingSelections source with
+        | Error errors -> failwithf "Expected analysis to succeed, got %A" errors
+        | Ok violations -> Assert.Empty(violations)
 
-        try
-            File.WriteAllText(tempFile, source)
-            let result = Engine.run "0.1.0" (options [ tempFile ] [ "naming" ] Json)
-            Assert.Empty(result.Report.Errors)
-            Assert.Empty(result.Report.Violations)
-        finally
-            File.Delete(tempFile)
+    [<Fact>]
+    let ``strict analysis retains a suppressed finding and non-strict analysis drops it`` () =
+        let source =
+            SourceFile.ofText
+                "in-memory.fs"
+                Implementation
+                """module TestStrictSuppression
+open System.Diagnostics.CodeAnalysis
+
+[<SuppressMessage("messfsharp", "ShortVariable")>]
+let v = 1
+"""
+
+        let shortVariable violations =
+            violations
+            |> List.filter (fun violation ->
+                violation.RuleName = "ShortVariable"
+                && violation.Description.Contains("'v'", StringComparison.Ordinal))
+
+        match Engine.analyzeSource false namingSelections source with
+        | Error errors -> failwithf "Expected analysis to succeed, got %A" errors
+        | Ok violations -> Assert.Empty(shortVariable violations)
+
+        match Engine.analyzeSource true namingSelections source with
+        | Error errors -> failwithf "Expected analysis to succeed, got %A" errors
+        | Ok violations -> Assert.Single(shortVariable violations) |> ignore
 
     [<Fact>]
     let ``non-attribute non-comment source lines terminate attribute scan and prevent attribute leakage`` () =
