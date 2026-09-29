@@ -45,8 +45,8 @@ they are usually lookup tables; writes to them are still outputs.
 
 `ImplicitOutput` reports a function or member that:
 
-- assigns (`<-`, `:=`, `incr`, `decr`, indexer set) to anything that is not
-  one of its own locals;
+- assigns (`<-`, `:=`, `incr`, `decr`, indexer set, `Array.set`) to anything
+  that is not one of its own locals;
 - mutates an argument, either by assignment or by calling `Add`, `Remove`,
   `Clear`, `Append`, and similar on a parameter annotated as a mutable
   collection; or
