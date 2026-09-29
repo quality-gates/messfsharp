@@ -1038,6 +1038,56 @@ let nestedFor (items: int array) =
         Assert.Equal<int list>([ 13; 18; 21; 25 ], reportedLines)
 
     [<Fact>]
+    let ``count in loop reports collection module length functions`` () =
+        let analyzed =
+            analyzeSource
+                """module Repro
+
+let listLength (items: int list) =
+    for x in items do
+        ignore (List.length items)
+
+let arrayLength (items: int array) =
+    for x in items do
+        ignore (Array.length items)
+
+let seqLength (items: int seq) =
+    for x in items do
+        ignore (Seq.length items)
+
+let qualified (items: int list) =
+    for x in items do
+        ignore (Microsoft.FSharp.Collections.List.length items)
+
+let functionValue (groups: int list list) =
+    for x in groups do
+        ignore (List.map List.length groups)
+
+let outsideLoop (items: int list) = List.length items
+
+let length x = x
+
+let userDefined (items: int list) =
+    for x in items do
+        ignore (length 1)
+"""
+
+        let rule = Rules.all |> List.find (fun item -> item.Name = "CountInLoopExpression")
+
+        let selection =
+            { Name = "CountInLoopExpression"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.empty }
+
+        let reportedLines =
+            rule.Check analyzed selection
+            |> List.map (fun violation -> violation.Location.StartLine)
+            |> List.sort
+
+        Assert.Equal<int list>([ 5; 9; 13; 17; 21 ], reportedLines)
+
+    [<Fact>]
     let ``nested custom ruleset exclusions are inherited`` () =
         let loaded =
             match Rulesets.load [ fixture "nested-ruleset.xml" ] with
