@@ -991,6 +991,53 @@ type Service() =
         )
 
     [<Fact>]
+    let ``count in loop reports only counts that each iteration evaluates again`` () =
+        let analyzed =
+            analyzeSource
+                """module Repro
+
+let forTo (items: int array) =
+    for i = 0 to items.Length - 1 do
+        i
+
+let forInRange (items: int array) =
+    for i in 0 .. items.Length - 1 do
+        ignore i
+
+let whileCondition (items: int array) =
+    let mutable i = 0
+    while i < items.Length do
+        i <- i + 1
+
+let forBody (items: int array) =
+    for i = 0 to 9 do
+        ignore items.Length
+
+let sameLineBody (items: int array) =
+    for x in items do ignore items.Length
+
+let nestedFor (items: int array) =
+    for j in items do
+        for i = 0 to items.Length - 1 do
+            ignore (i, j)
+"""
+
+        let rule = Rules.all |> List.find (fun item -> item.Name = "CountInLoopExpression")
+
+        let selection =
+            { Name = "CountInLoopExpression"
+              RulesetName = "design"
+              Priority = 3
+              Properties = Map.empty }
+
+        let reportedLines =
+            rule.Check analyzed selection
+            |> List.map (fun violation -> violation.Location.StartLine)
+            |> List.sort
+
+        Assert.Equal<int list>([ 13; 18; 21; 25 ], reportedLines)
+
+    [<Fact>]
     let ``nested custom ruleset exclusions are inherited`` () =
         let loaded =
             match Rulesets.load [ fixture "nested-ruleset.xml" ] with

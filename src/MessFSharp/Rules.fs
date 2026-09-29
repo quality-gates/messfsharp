@@ -408,48 +408,35 @@ module Rules =
                 lastTopLevelStatement
                 |> Option.exists (fun (statementLine, _) -> tokensOnLine file statementLine |> hasTerminatingExpression)
 
+    let private regionContains (region: SourceLocation) (token: SyntaxToken) =
+        let startsInside =
+            token.Line > region.StartLine
+            || (token.Line = region.StartLine && token.Column >= region.StartColumn)
+
+        let endsInside =
+            token.EndLine < region.EndLine
+            || (token.EndLine = region.EndLine && token.EndColumn <= region.EndColumn)
+
+        startsInside && endsInside
+
     let private linesInsideLoops (file: AnalyzedFile) =
-        let lines = file.Source.Lines
-        let result = ResizeArray<int>()
+        let isRepeated token =
+            file.LoopIterationRegions
+            |> List.exists (fun region -> regionContains region token)
 
-        let loopLines =
-            file.Tokens
-            |> Array.filter (fun token -> token.Kind = Keyword && (token.Text = "for" || token.Text = "while"))
-            |> Array.map (fun token -> token.Line)
-            |> Array.distinct
-
-        let countLines =
-            file.Tokens
-            |> Array.windowed 2
-            |> Array.choose (fun pair ->
-                if pair[0].Text = "." && (pair[1].Text = "Length" || pair[1].Text = "Count") then
-                    Some pair[1].Line
-                else
-                    None)
-            |> Set.ofArray
-
-        for loopLineNumber in loopLines do
-            let loopIndex = loopLineNumber - 1
-            let loopIndent = lineIndent lines[loopIndex]
-            let mutable index = loopIndex
-            let mutable doneWithLoop = false
-
-            while index < lines.Length && not doneWithLoop do
-                let candidate = lines[index]
-
-                if
-                    index > loopIndex
-                    && not (String.IsNullOrWhiteSpace candidate)
-                    && not (candidate.TrimStart().StartsWith("//", StringComparison.Ordinal))
-                    && lineIndent candidate <= loopIndent
-                then
-                    doneWithLoop <- true
-                elif countLines.Contains(index + 1) then
-                    result.Add(index + 1)
-
-                index <- index + 1
-
-        result |> Seq.distinct |> Seq.toList
+        file.Tokens
+        |> Array.windowed 2
+        |> Array.choose (fun pair ->
+            if
+                pair[0].Text = "."
+                && (pair[1].Text = "Length" || pair[1].Text = "Count")
+                && isRepeated pair[1]
+            then
+                Some pair[1].Line
+            else
+                None)
+        |> Array.distinct
+        |> Array.toList
 
     let private mapFactories = set [ "ofList"; "ofArray"; "ofSeq" ]
 
