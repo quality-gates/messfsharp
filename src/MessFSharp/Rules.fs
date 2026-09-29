@@ -333,10 +333,20 @@ module Rules =
         && tokens[index + 2].Kind = Identifier
         && String.Equals(tokens[index + 2].Text, "Exit", StringComparison.OrdinalIgnoreCase)
 
+    let private isExitCall (tokens: SyntaxToken array) index =
+        tokens[index].Kind = Identifier
+        && tokens[index].Text = "exit"
+        && not (isExitBindingOrMemberToken tokens index)
+        && index + 1 < tokens.Length
+        && isExitArgumentStart tokens[index + 1]
+
     let private hasTerminatingExpression (tokens: SyntaxToken array) =
         tokens
         |> Array.mapi (fun index token -> index, token)
-        |> Array.exists (fun (index, token) -> isTerminatingIdentifier token || isEnvironmentExit tokens index)
+        |> Array.exists (fun (index, token) ->
+            isTerminatingIdentifier token
+            || isEnvironmentExit tokens index
+            || isExitCall tokens index)
 
     let private tokensOnLine (file: AnalyzedFile) lineNumber =
         file.Tokens |> Array.filter (fun token -> token.Line = lineNumber)
