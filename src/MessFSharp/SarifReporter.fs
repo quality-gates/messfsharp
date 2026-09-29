@@ -6,6 +6,18 @@ open Domain
 open ReportSupport
 
 module internal SarifReporter =
+    // SARIF requires a valid URI (RFC 3986), so encode each report path segment.
+    let private artifactUri (path: string) =
+        let encoded = path.Split('/') |> Array.map Uri.EscapeDataString |> String.concat "/"
+
+        let hasDriveLetter =
+            path.Length >= 3 && Char.IsAsciiLetter path[0] && path[1] = ':' && path[2] = '/'
+
+        if hasDriveLetter then
+            sprintf "file:///%c:%s" path[0] (encoded.Substring(encoded.IndexOf('/')))
+        else
+            encoded
+
     let format (_color: bool) (report: Report) =
         let ruleIds =
             report.Violations
@@ -44,7 +56,7 @@ module internal SarifReporter =
                        helpUri = violation.HelpUri |}
                    locations =
                     [| {| physicalLocation =
-                           {| artifactLocation = {| uri = violation.Location.File |}
+                           {| artifactLocation = {| uri = artifactUri violation.Location.File |}
                               region =
                                {| startLine = violation.Location.StartLine
                                   startColumn = violation.Location.StartColumn
@@ -61,7 +73,8 @@ module internal SarifReporter =
                    message = {| text = error.Message |}
                    locations =
                     [| {| physicalLocation =
-                           {| artifactLocation = {| uri = error.File |> Option.defaultValue "messfsharp" |}
+                           {| artifactLocation =
+                               {| uri = error.File |> Option.defaultValue "messfsharp" |> artifactUri |}
                               region =
                                {| startLine =
                                    location |> Option.map (fun item -> item.StartLine) |> Option.defaultValue 1

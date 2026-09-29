@@ -843,3 +843,44 @@ module AcceptanceTests =
         use document = JsonDocument.Parse(result.StandardOutput)
         Assert.Equal(0, document.RootElement.GetProperty("errors").GetArrayLength())
         Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
+
+    [<Fact>]
+    let ``SARIF artifact locations percent-encode spaces and hashes in report paths`` () =
+        let directory = Directory.CreateTempSubdirectory("messfsharp-sarif-uri-")
+
+        try
+            let createSource (relativePath: string) =
+                let path = Path.Combine(directory.FullName, relativePath)
+                Directory.CreateDirectory(Path.GetDirectoryName(path)) |> ignore
+                File.WriteAllText(path, "module Repro\n\nlet veryLongNameThatExceedsTheDefaultLimit = 1\n")
+
+            let artifactUris (output: string) =
+                use document = JsonDocument.Parse(output)
+
+                (document.RootElement.GetProperty("runs")[0]).GetProperty("results").EnumerateArray()
+                |> Seq.map (fun finding ->
+                    (finding.GetProperty("locations")[0])
+                        .GetProperty("physicalLocation")
+                        .GetProperty("artifactLocation")
+                        .GetProperty("uri")
+                        .GetString())
+                |> Seq.toList
+
+            createSource (Path.Combine("my files", "sample.fs"))
+            createSource (Path.Combine("a b", "c#d.fs"))
+
+            let result =
+                PackagedTool.runFrom
+                    directory.FullName
+                    [ "my files/sample.fs,a b/c#d.fs"
+                      "sarif"
+                      "naming"
+                      "--only"
+                      "LongVariable"
+                      "--ignore-violations-on-exit" ]
+
+            Assert.Equal(0, result.ExitCode)
+            Assert.Equal("", result.StandardError)
+            Assert.Equal<string list>([ "a%20b/c%23d.fs"; "my%20files/sample.fs" ], artifactUris result.StandardOutput)
+        finally
+            directory.Delete(true)
