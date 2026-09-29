@@ -2022,6 +2022,54 @@ let multiline =
         )
 
     [<Fact>]
+    let ``duplicated array key detects duplicate keys in readOnlyDict constructions`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMap
+let unqualified = readOnlyDict [ ("a", 1); ("a", 2) ]
+let qualified = Microsoft.FSharp.Core.ExtraTopLevelOperators.readOnlyDict [ ("a", 1); ("a", 2) ]
+let partlyQualified = ExtraTopLevelOperators.readOnlyDict [ ("a", 1); ("a", 2) ]
+let qualifiedDict = ExtraTopLevelOperators.dict [ ("a", 1); ("a", 2) ]
+let piped = [ ("a", 1); ("a", 2) ] |> ExtraTopLevelOperators.readOnlyDict
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+
+        Assert.Equal<int list>(
+            [ 2; 3; 4; 5; 6 ],
+            violations
+            |> List.map (fun violation -> violation.Location.StartLine)
+            |> List.sort
+        )
+
+    [<Fact>]
+    let ``duplicated array key ignores readOnlyDict with distinct keys and member access`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMap
+let distinct = readOnlyDict [ ("a", 1); ("b", 2) ]
+let memberAccess = x.readOnlyDict [ ("a", 1); ("a", 2) ]
+let otherModule = Other.readOnlyDict [ ("a", 1); ("a", 2) ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
     let ``duplicated array key ignores piped lists that are not the constructor input`` () =
         let analyzed =
             analyzeSource

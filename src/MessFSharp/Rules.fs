@@ -462,10 +462,34 @@ module Rules =
             let leftmost = tokens[j].Text
             leftmost.Length > 0 && Char.IsUpper(leftmost[0])
 
+    let private dictionaryOperators = set [ "dict"; "readOnlyDict" ]
+
+    /// Index where a `dict` or `readOnlyDict` call's name starts: the operator itself when
+    /// unqualified, or the leftmost part of an `ExtraTopLevelOperators` qualification.
+    let private dictionaryOperatorHead (tokens: SyntaxToken array) (i: int) =
+        if
+            tokens[i].Kind <> Identifier
+            || not (dictionaryOperators.Contains(tokens[i].Text))
+        then
+            None
+        elif i = 0 || tokens[i - 1].Text <> "." then
+            Some i
+        elif i >= 2 && tokens[i - 2].Text = "ExtraTopLevelOperators" then
+            let mutable j = i - 2
+
+            while j >= 2 && tokens[j - 1].Text = "." && tokens[j - 2].Kind = Identifier do
+                j <- j - 2
+
+            Some j
+        else
+            None
+
     let private isMapConstruction (tokens: SyntaxToken array) (i: int) =
         let token = tokens[i]
 
-        if token.Kind = Identifier && (token.Text = "dict" || token.Text = "Dictionary") then
+        match dictionaryOperatorHead tokens i with
+        | Some headIdx -> Some(tokens[headIdx].Line, i + 1)
+        | None when token.Kind = Identifier && token.Text = "Dictionary" ->
             if i = 0 || tokens[i - 1].Text <> "." then
                 let startLine =
                     if i > 0 && tokens[i - 1].Text = "new" then
@@ -474,19 +498,18 @@ module Rules =
                         token.Line
 
                 Some(startLine, i + 1)
-            elif token.Text = "Dictionary" && isQualifiedTypeConstructor tokens i then
+            elif isQualifiedTypeConstructor tokens i then
                 Some(token.Line, i + 1)
             else
                 None
-        elif
+        | None when
             i >= 2
             && tokens[i - 2].Text = "Map"
             && tokens[i - 1].Text = "."
             && mapFactories.Contains(token.Text)
-        then
+            ->
             Some(tokens[i - 2].Line, i + 1)
-        else
-            None
+        | None -> None
 
     let private findCollectionOpening (tokens: SyntaxToken array) (searchStart: int) =
         let mutable k = searchStart
@@ -562,10 +585,10 @@ module Rules =
         openIdx
 
     let private constructionHeadIndex (tokens: SyntaxToken array) (i: int) =
-        if tokens[i].Text = "dict" || tokens[i].Text = "Dictionary" then
-            i
-        else
-            i - 2
+        match dictionaryOperatorHead tokens i with
+        | Some headIdx -> headIdx
+        | None when tokens[i].Text = "Dictionary" -> i
+        | None -> i - 2
 
     let private findPipedCollectionOpening (tokens: SyntaxToken array) (headIdx: int) =
         let pipeIdx = headIdx - 1
