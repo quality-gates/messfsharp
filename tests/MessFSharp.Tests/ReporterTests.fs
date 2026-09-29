@@ -140,6 +140,30 @@ module ReporterTests =
         )
 
     [<Fact>]
+    let ``SARIF artifact locations are valid URIs for relative and drive-letter paths`` () =
+        let artifactUri file =
+            let violation = List.head report.Violations
+
+            let singleReport =
+                { report with
+                    Violations =
+                        [ { violation with
+                              Location = { violation.Location with File = file } } ] }
+
+            use sarif = JsonDocument.Parse(Reporter.format Sarif false singleReport)
+
+            let finding = (sarif.RootElement.GetProperty("runs")[0]).GetProperty("results")[0]
+
+            (finding.GetProperty("locations")[0])
+                .GetProperty("physicalLocation")
+                .GetProperty("artifactLocation")
+                .GetProperty("uri")
+                .GetString()
+
+        Assert.Equal("src/%3Csample%3E%26.fs", artifactUri "src/<sample>&.fs")
+        Assert.Equal("file:///C:/my%20files/c%23d.fs", artifactUri "C:/my files/c#d.fs")
+
+    [<Fact>]
     let ``human and annotation reporters escape content and retain visible findings`` () =
         let text = Reporter.format Text false report
         Assert.Contains("src/<sample>&.fs:3:ExampleRule: Use <safe> & deterministic output.", text)
