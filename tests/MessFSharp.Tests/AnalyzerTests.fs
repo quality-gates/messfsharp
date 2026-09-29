@@ -1989,6 +1989,58 @@ let distinct =
         Assert.Empty(violations)
 
     [<Fact>]
+    let ``duplicated array key detects duplicate keys in piped and backward-applied constructions`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMap
+let forwardMap = [ ("a", 1); ("a", 2) ] |> Map.ofList
+let forwardDict = [ ("a", 1); ("a", 2) ] |> dict
+let forwardSeq = [ ("a", 1); ("a", 2) ] |> Map.ofSeq
+let backwardMap = Map.ofList <| [ ("a", 1); ("a", 2) ]
+let backwardDict = dict <| [ ("a", 1); ("a", 2) ]
+let forwardArray = [| ("a", 1); ("a", 2) |] |> Map.ofArray
+let multiline =
+    [ "a", 1
+      "a", 2 ]
+    |> Map.ofList
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+
+        Assert.Equal<int list>(
+            [ 2; 3; 4; 5; 6; 7; 9 ],
+            violations
+            |> List.map (fun violation -> violation.Location.StartLine)
+            |> List.sort
+        )
+
+    [<Fact>]
+    let ``duplicated array key ignores piped lists that are not the constructor input`` () =
+        let analyzed =
+            analyzeSource
+                """module TestMap
+let distinct = [ ("a", 1); ("b", 2) ] |> Map.ofList
+let transformed = [ ("a", 1); ("a", 2) ] |> List.map id |> Map.ofList
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
 
 
     let ``static access ignores open directives`` () =

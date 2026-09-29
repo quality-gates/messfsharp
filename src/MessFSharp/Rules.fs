@@ -507,6 +507,9 @@ module Rules =
 
                 k <- k + 1
 
+        if k < tokens.Length && tokens[k].Kind = Operator && tokens[k].Text = "<|" then
+            k <- k + 1
+
         while k < tokens.Length
               && ((tokens[k].Kind = Punctuation && tokens[k].Text = "(")
                   || (tokens[k].Kind = Identifier
@@ -537,6 +540,47 @@ module Rules =
             cur <- cur + 1
 
         closeIdx
+
+    let private findMatchingOpeningBracket (tokens: SyntaxToken array) (closeIdx: int) =
+        let mutable bracketDepth = 1
+        let mutable cur = closeIdx - 1
+        let mutable openIdx = None
+
+        while cur >= 0 && bracketDepth > 0 do
+            let t = tokens[cur]
+
+            if t.Kind = Punctuation && t.Text = "]" then
+                bracketDepth <- bracketDepth + 1
+            elif t.Kind = Punctuation && t.Text = "[" then
+                bracketDepth <- bracketDepth - 1
+
+                if bracketDepth = 0 then
+                    openIdx <- Some cur
+
+            cur <- cur - 1
+
+        openIdx
+
+    let private constructionHeadIndex (tokens: SyntaxToken array) (i: int) =
+        if tokens[i].Text = "dict" || tokens[i].Text = "Dictionary" then
+            i
+        else
+            i - 2
+
+    let private findPipedCollectionOpening (tokens: SyntaxToken array) (headIdx: int) =
+        let pipeIdx = headIdx - 1
+        let closeIdx = headIdx - 2
+
+        if
+            closeIdx >= 0
+            && tokens[pipeIdx].Kind = Operator
+            && tokens[pipeIdx].Text = "|>"
+            && tokens[closeIdx].Kind = Punctuation
+            && tokens[closeIdx].Text = "]"
+        then
+            findMatchingOpeningBracket tokens closeIdx
+        else
+            None
 
     let private getLiteralTokens (tokens: SyntaxToken array) (openIdx: int) (closeIdx: int) =
         let mutable start = openIdx + 1
@@ -780,13 +824,20 @@ module Rules =
         for i in 0 .. tokens.Length - 1 do
             match isMapConstruction tokens i with
             | Some(startLine, searchStart) ->
-                match findCollectionOpening tokens searchStart with
-                | Some openIdx when processedBrackets.Add(openIdx) ->
+                let opening =
+                    match findCollectionOpening tokens searchStart with
+                    | Some openIdx -> Some(startLine, openIdx)
+                    | None ->
+                        findPipedCollectionOpening tokens (constructionHeadIndex tokens i)
+                        |> Option.map (fun openIdx -> tokens[openIdx].Line, openIdx)
+
+                match opening with
+                | Some(constructionLine, openIdx) when processedBrackets.Add(openIdx) ->
                     match findMatchingClosingBracket tokens openIdx with
                     | Some closeIdx ->
                         let literalTokens = getLiteralTokens tokens openIdx closeIdx
                         let keys = extractKeys literalTokens
-                        constructions.Add(startLine, keys)
+                        constructions.Add(constructionLine, keys)
                     | None -> ()
                 | _ -> ()
             | None -> ()
