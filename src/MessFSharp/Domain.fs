@@ -173,6 +173,7 @@ module Domain =
           TypeMethods: Map<string, Declaration list>
           Expressions: NormalizedExpression list
           ExceptionHandlerClauses: SourceLocation list
+          LoopIterationRegions: SourceLocation list
           LexicalScopes: LexicalScope list
           SyntacticReferences: SyntacticReference list
           ImplicitFlows: ImplicitFlow list }

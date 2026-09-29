@@ -30,6 +30,7 @@ module SyntaxModel =
         { Declarations: DeclarationFact list
           Expressions: NormalizedExpression list
           ExceptionHandlerClauses: SourceLocation list
+          LoopIterationRegions: SourceLocation list
           LexicalScopes: LexicalScope list
           References: SyntacticReference list }
 
@@ -223,6 +224,24 @@ module SyntaxModel =
         | SynExpr.TryWith(withCases = clauses) -> clauses |> List.map (fun clause -> location fileName clause.Range)
         | _ -> []
 
+    /// A `for` header is evaluated once. A `while` condition is evaluated again for each iteration.
+    let private loopIterationRanges (expression: SynExpr) =
+        match expression with
+        | SynExpr.For(doBody = body)
+        | SynExpr.ForEach(bodyExpr = body) -> [ body.Range ]
+        | SynExpr.While(whileExpr = condition; doExpr = body)
+        | SynExpr.WhileBang(whileExpr = condition; doExpr = body) -> [ condition.Range; body.Range ]
+        | _ -> []
+
+    let private loopIterationLocations fileName parsedInput =
+        let folder regions _ node =
+            match node with
+            | SyntaxNode.SynExpr expression ->
+                (loopIterationRanges expression |> List.map (location fileName)) @ regions
+            | _ -> regions
+
+        ParsedInput.fold folder [] parsedInput |> List.rev
+
     /// A point-free `function` body takes its input without a name in the binding pattern.
     let private hasImplicitInput (body: SynExpr) =
         match body with
@@ -354,6 +373,7 @@ module SyntaxModel =
         { Declarations = declarations |> List.rev
           Expressions = expressions |> List.rev
           ExceptionHandlerClauses = handlerClauses |> List.rev
+          LoopIterationRegions = loopIterationLocations fileName parsedInput
           LexicalScopes =
             scopes
             |> List.distinctBy (fun (scope: LexicalScope) -> scope.Location)
