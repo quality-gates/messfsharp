@@ -3632,3 +3632,24 @@ let compute () =
 
         Assert.Empty(result.Report.Errors)
         Assert.Empty(result.Report.Violations)
+
+    [<Fact>]
+    let ``element writes to a module-level array are implicit outputs`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "issue-169-module-array-writes.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine, violation.Description)
+            |> List.sort
+
+        let expected =
+            [ "ImplicitOutput", 5, "'setIndexer' writes shared value 'items' instead of returning the new value."
+              "ImplicitOutput", 7, "'setDotIndexer' writes shared value 'items' instead of returning the new value."
+              "ImplicitOutput", 9, "'setWithArraySet' writes shared value 'items' instead of returning the new value."
+              "ImplicitOutput", 11, "'setArgument' mutates argument 'values' instead of returning a new value." ]
+            |> List.sort
+
+        Assert.Equal<(string * int * string) list>(expected, actual)

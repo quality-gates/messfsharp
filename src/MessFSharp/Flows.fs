@@ -296,6 +296,11 @@ module Flows =
             operator.idText = "op_ColonEquals"
             ->
             Some target
+        | SynExpr.App(
+            funcExpr = SynExpr.LongIdent(longDotId = SynLongIdent(id = [ arrayModule; operation ])); argExpr = target) when
+            arrayModule.idText = "Array" && operation.idText = "set"
+            ->
+            Some target
         | _ -> None
 
     let private isWriteTarget (ancestors: SyntaxNode list) (nodeRange: range) =
@@ -657,6 +662,7 @@ module Flows =
             match resolve current identifiers with
             | Some(Argument(name, _)) -> make OutputFlow (ArgumentMutation, name)
             | Some(Data(source, name, _)) -> make OutputFlow (source, name)
+            | Some(ModuleValue name)
             | Some(Unknown name) -> make OutputFlow (SharedState, name)
             | _ -> None
         | MutatingCall identifiers ->
