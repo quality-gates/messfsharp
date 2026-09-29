@@ -429,20 +429,35 @@ module Rules =
 
         startsInside && endsInside
 
+    let private collectionModules = set [ "List"; "Array"; "Seq" ]
+
     let private linesInsideLoops (file: AnalyzedFile) =
         let isRepeated token =
             file.LoopIterationRegions
             |> List.exists (fun region -> regionContains region token)
 
-        file.Tokens
-        |> Array.windowed 2
-        |> Array.choose (fun pair ->
-            if
-                pair[0].Text = "."
-                && (pair[1].Text = "Length" || pair[1].Text = "Count")
-                && isRepeated pair[1]
-            then
-                Some pair[1].Line
+        let tokens = file.Tokens
+
+        let isCountToken index =
+            let token = tokens[index]
+            let isMemberAccess = index >= 1 && tokens[index - 1].Text = "."
+
+            let isCountProperty =
+                isMemberAccess && (token.Text = "Length" || token.Text = "Count")
+
+            let isCollectionLengthFunction =
+                token.Text = "length"
+                && isMemberAccess
+                && index >= 2
+                && collectionModules.Contains tokens[index - 2].Text
+
+            isCountProperty || isCollectionLengthFunction
+
+        tokens
+        |> Array.mapi (fun index token -> index, token)
+        |> Array.choose (fun (index, token) ->
+            if isCountToken index && isRepeated token then
+                Some token.Line
             else
                 None)
         |> Array.distinct
