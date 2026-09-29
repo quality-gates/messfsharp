@@ -2221,6 +2221,44 @@ type Account =
         Assert.Empty(violations)
 
     [<Fact>]
+    let ``else expression treats exit as unconditional termination`` () =
+        let analyzed =
+            analyzeSource
+                """module TestElseExit
+let f x =
+    if x < 0 then
+        exit 1
+    else
+        x
+
+let g x =
+    if x < 0 then
+        exit(1)
+    else
+        x
+
+let h (runner: Runner) x =
+    if x < 0 then
+        runner.exit 1
+    else
+        x
+"""
+
+        let selection =
+            { Name = "ElseExpression"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "ElseExpression")
+
+        let elseLines =
+            rule.Check analyzed selection
+            |> List.map (fun violation -> violation.Location.StartLine)
+
+        Assert.Equal<int list>([ 5; 11 ], elseLines)
+
+    [<Fact>]
     let ``else expression does not flag outer else when only nested branch terminates`` () =
         let analyzed =
             analyzeSource
