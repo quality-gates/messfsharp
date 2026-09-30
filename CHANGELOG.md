@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.12
+
+- Expose per-source analysis in engine (#166).
+- Count same-line `let ... in` uses of local bindings in `UnusedLocalVariable` (#168, #176).
+- Report element writes to module-level arrays and `Array.set` mutations in flow analysis (#169, #177).
+- Exclude single-evaluation expressions in `for` loop headers from `CountInLoopExpression` (#170, #178).
+- Recognize `exit` as terminating expression in `ElseExpression` (#172, #179).
+- Detect duplicate keys in piped map and dictionary constructions (#173, #180).
+- Detect duplicate keys in `readOnlyDict` constructions (#174, #181).
+- Percent-encode SARIF artifact location URIs (#175, #182).
+- Report `List.length`, `Array.length`, and `Seq.length` in `CountInLoopExpression` (#171, #183).
+
 ## 0.1.11
 
 - Detect module-level ref cell mutations through `incr` and `decr` (#157, #162).
