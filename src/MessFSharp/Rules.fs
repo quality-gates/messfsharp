@@ -1567,20 +1567,31 @@ module Rules =
 
     let private closesBracket (text: string) = text = ")" || text = "]" || text = "}"
 
+    // ':' annotates, ':?' tests, ':?>' downcasts, and ':>' upcasts or constrains a
+    // generic parameter; each is followed by a type name.
     let private isTypeAnnotation (token: SyntaxToken) =
         token.Kind = Operator
-        && (token.Text = ":" || token.Text = ":?" || token.Text = ":?>")
+        && (token.Text = ":" || token.Text = ":?" || token.Text = ":?>" || token.Text = ":>")
 
     // These keywords introduce a type name, not an expression: 'open', 'namespace'
     // and 'module' name a namespace, 'interface' names an implemented interface,
-    // and 'inherit' names a base type.
+    // 'inherit' names a base type, and 'of' names a union case payload type.
     let private isTypeIntroducingKeyword (token: SyntaxToken) =
         token.Kind = Keyword
         && (token.Text = "open"
             || token.Text = "namespace"
             || token.Text = "module"
             || token.Text = "interface"
-            || token.Text = "inherit")
+            || token.Text = "inherit"
+            || token.Text = "of")
+
+    // True when the token at 'index' is the 'new' that opens an object expression,
+    // '{ new T with ... }', which names the implemented type rather than calling it.
+    let private opensObjectExpression (tokens: SyntaxToken array) index =
+        index > 0
+        && tokens[index].Kind = Keyword
+        && tokens[index].Text = "new"
+        && tokens[index - 1].Text = "{"
 
     // The tokens that can occur between the 'type' keyword and the '=' of a type
     // declaration head: the type name, its generic parameters, and the parentheses
@@ -1678,6 +1689,7 @@ module Rules =
                         && tokens[i + 4].Kind = Identifier
                         && not (i > 0 && isTypeIntroducingKeyword tokens[i - 1])
                         && not (closesTypeDeclarationHead tokens (i - 1))
+                        && not (opensObjectExpression tokens (i - 1))
                         && not inAttribute
                         && not inType
                     then
