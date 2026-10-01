@@ -2276,6 +2276,30 @@ let alsoSuppressed () = 43
         )
 
     [<Fact>]
+    let ``static access does not flag upcasts type constraints union payloads and object expressions`` () =
+        let result =
+            Engine.run
+                "0.1.0"
+                (options [ fixture "issue-189-static-access-upcasts-constraints-payloads.fs" ] [ "cleancode" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let sourceLines =
+            File.ReadAllLines(fixture "issue-189-static-access-upcasts-constraints-payloads.fs")
+
+        let flagged =
+            result.Report.Violations
+            |> List.filter (fun violation -> violation.RuleName = "StaticAccess")
+            |> List.map (fun violation -> sourceLines[violation.Location.StartLine - 1].Trim())
+            |> List.sort
+
+        Assert.Equal<string list>(
+            [ "let builder () = new System.Text.StringBuilder()"
+              "let now () = System.DateTime.UtcNow" ],
+            flagged
+        )
+
+    [<Fact>]
     let ``static access still flags static member and property invocations`` () =
         let analyzed =
             analyzeSource
