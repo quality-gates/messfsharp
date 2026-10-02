@@ -288,6 +288,27 @@ module AcceptanceTests =
         )
 
     [<Fact>]
+    let ``packaged executable reports ref cells mutated with parenthesized and piped incr and decr`` () =
+        let source = relativeFixture "issue-194-ref-cell-paren-pipe-mutations.fs"
+
+        let result =
+            PackagedTool.run [ source; "text"; "design"; "--only"; "GlobalVariable" ]
+
+        Assert.Equal(2, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        Assert.Equal(
+            String.concat
+                newline
+                [ $"{source}:3:GlobalVariable: Module-level shared value 'counter1' is mutable or globally visible."
+                  $"{source}:4:GlobalVariable: Module-level shared value 'counter2' is mutable or globally visible."
+                  $"{source}:5:GlobalVariable: Module-level shared value 'counter3' is mutable or globally visible."
+                  $"{source}:6:GlobalVariable: Module-level shared value 'counter4' is mutable or globally visible." ]
+            + newline,
+            result.StandardOutput
+        )
+
+    [<Fact>]
     let ``packaged executable recognizes standard terminating functions in else expressions`` () =
         let source = relativeFixture "issue-156-terminating-functions.fs"
 
