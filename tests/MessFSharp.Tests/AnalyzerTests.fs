@@ -2039,6 +2039,60 @@ let distinct =
         Assert.Empty(violations)
 
     [<Fact>]
+    let ``duplicated array key detects duplicate keys in direct Map constructor invocations`` () =
+        let analyzed =
+            analyzeSource
+                """module Repro
+
+let m1 = Map [ ("a", 1); ("a", 2) ]
+let m2 = Map [ "b", 1; "b", 2 ]
+let m3 = Map([ ("c", 1); ("c", 2) ])
+let m4 = new Map<string, int>([ ("d", 1); ("d", 2) ])
+let m5 = Map [| ("e", 1); ("e", 2) |]
+let m6 = Microsoft.FSharp.Collections.Map [ ("f", 1); ("f", 2) ]
+let m7 = [ ("g", 1); ("g", 2) ] |> Map
+let m8 = Map <| [ ("h", 1); ("h", 2) ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+
+        Assert.Equal<int list>(
+            [ 3; 4; 5; 6; 7; 8; 9; 10 ],
+            violations
+            |> List.map (fun violation -> violation.Location.StartLine)
+            |> List.sort
+        )
+
+    [<Fact>]
+    let ``duplicated array key ignores distinct keys and Map type annotations`` () =
+        let analyzed =
+            analyzeSource
+                """module Repro
+
+let m1 = Map [ ("a", 1); ("b", 2) ]
+let m2: Map<string, int> = Map.empty
+let m3 = Map.ofList [ ("c", 1); ("d", 2) ]
+let f (m: Map<string, int>) = [ ("e", 1); ("e", 2) ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
     let ``duplicated array key detects duplicate keys in piped and backward-applied constructions`` () =
         let analyzed =
             analyzeSource

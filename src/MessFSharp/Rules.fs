@@ -499,12 +499,20 @@ module Rules =
         else
             None
 
+    /// Types whose constructors take a key-value collection, e.g. `Map [ ... ]` or
+    /// `new Dictionary<_, _>(...)`.
+    let private constructorTypes = set [ "Dictionary"; "Map" ]
+
     let private isMapConstruction (tokens: SyntaxToken array) (i: int) =
         let token = tokens[i]
 
         match dictionaryOperatorHead tokens i with
         | Some headIdx -> Some(tokens[headIdx].Line, i + 1)
-        | None when token.Kind = Identifier && token.Text = "Dictionary" ->
+        | None when
+            token.Kind = Identifier
+            && constructorTypes.Contains(token.Text)
+            && (i + 1 >= tokens.Length || tokens[i + 1].Text <> ".")
+            ->
             if i = 0 || tokens[i - 1].Text <> "." then
                 let startLine =
                     if i > 0 && tokens[i - 1].Text = "new" then
@@ -602,7 +610,7 @@ module Rules =
     let private constructionHeadIndex (tokens: SyntaxToken array) (i: int) =
         match dictionaryOperatorHead tokens i with
         | Some headIdx -> headIdx
-        | None when tokens[i].Text = "Dictionary" -> i
+        | None when constructorTypes.Contains(tokens[i].Text) -> i
         | None -> i - 2
 
     let private findPipedCollectionOpening (tokens: SyntaxToken array) (headIdx: int) =
