@@ -2039,6 +2039,53 @@ let distinct =
         Assert.Empty(violations)
 
     [<Fact>]
+    let ``duplicated array key detects duplicate KeyValuePair.Create and new KeyValuePair entries`` () =
+        let analyzed =
+            analyzeSource
+                """module Repro
+
+open System.Collections.Generic
+
+let d1 = dict [ KeyValuePair.Create("a", 1); KeyValuePair.Create("a", 2) ]
+let d2 = dict [ new KeyValuePair<string, int>("b", 1); new KeyValuePair<string, int>("b", 2) ]
+let d3 = Dictionary [ KeyValuePair.Create("c", 1); KeyValuePair.Create("c", 2) ]
+let d4 = Dictionary [ new KeyValuePair<string, int>("d", 1); new KeyValuePair<string, int>("d", 2) ]
+let d5 = dict [ System.Collections.Generic.KeyValuePair.Create<string, int>("e", 1); KeyValuePair.Create("e", 2) ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Equal<int list>([ 5; 6; 7; 8; 9 ], violations |> List.map (fun v -> v.Location.StartLine) |> List.sort)
+
+    [<Fact>]
+    let ``duplicated array key ignores distinct KeyValuePair.Create and new KeyValuePair entries`` () =
+        let analyzed =
+            analyzeSource
+                """module Repro
+
+open System.Collections.Generic
+
+let d1 = dict [ KeyValuePair.Create("a", 1); KeyValuePair.Create("b", 2) ]
+let d2 = Dictionary [ new KeyValuePair<string, int>("a", 1); new KeyValuePair<string, int>("b", 2) ]
+"""
+
+        let selection =
+            { Name = "DuplicatedArrayKey"
+              RulesetName = "cleancode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
+        let violations = rule.Check analyzed selection
+        Assert.Empty(violations)
+
+    [<Fact>]
     let ``duplicated array key detects duplicate keys in direct Map constructor invocations`` () =
         let analyzed =
             analyzeSource

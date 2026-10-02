@@ -671,6 +671,16 @@ module Rules =
             tryExtractLiteralKey tokens index
 
     let private isKeyValuePairEntry (tokens: SyntaxToken array) (index: int) =
+        let index =
+            if
+                index < tokens.Length
+                && tokens[index].Kind = Keyword
+                && tokens[index].Text = "new"
+            then
+                index + 1
+            else
+                index
+
         if index >= tokens.Length || tokens[index].Kind <> Identifier then
             None
         else
@@ -681,7 +691,14 @@ module Rules =
                   && tokens[last + 2].Kind = Identifier do
                 last <- last + 2
 
-            if tokens[last].Text <> "KeyValuePair" then
+            let isConstructor = tokens[last].Text = "KeyValuePair"
+
+            let isFactory =
+                tokens[last].Text = "Create"
+                && last - 2 >= index
+                && tokens[last - 2].Text = "KeyValuePair"
+
+            if not isConstructor && not isFactory then
                 None
             else
                 let mutable k = last + 1
