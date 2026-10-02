@@ -176,3 +176,91 @@ module CatalogTests =
             Assert.Equal(1, selection.Properties.Count)
         finally
             System.IO.File.Delete(tempFile)
+
+    let private noFilter: RuleFilter =
+        { Only = []
+          Disable = []
+          MinimumPriority = None
+          MaximumPriority = None }
+
+    let private filtered filter ruleset =
+        match Rulesets.filterSelections filter ruleset with
+        | Ok value -> names value
+        | Error errors -> failwithf "Could not filter selections: %A" errors
+
+    [<Fact>]
+    let ``rule filter rejects a requested rule that no loaded ruleset selects`` () =
+        let result =
+            Rulesets.filterSelections
+                { noFilter with
+                    Only = [ "ShortVariable"; "Bogus" ] }
+                (loaded "naming")
+
+        Assert.Equal(Error [ "Requested rule 'bogus' is not present in the loaded rulesets." ], result)
+
+    [<Fact>]
+    let ``rule filter rejects a disabled rule that no loaded ruleset selects`` () =
+        let result =
+            Rulesets.filterSelections
+                { noFilter with
+                    Disable = [ "ShortVariable"; "Bogus" ] }
+                (loaded "naming")
+
+        Assert.Equal(Error [ "Disabled rule 'bogus' is not present in the loaded rulesets." ], result)
+
+    [<Fact>]
+    let ``rule filter matches requested and disabled rule names without regard to case`` () =
+        let filter =
+            { noFilter with
+                Only = [ "shortvariable"; "LONGVARIABLE"; "ShortMethodName" ]
+                Disable = [ "shortMETHODname" ] }
+
+        Assert.Equal<string list>([ "ShortVariable"; "LongVariable" ], filtered filter (loaded "naming"))
+
+    [<Fact>]
+    let ``rule filter priority bounds are inclusive`` () =
+        let namingAndControversial =
+            match Rulesets.load [ "naming"; "controversial" ] with
+            | Ok value -> value
+            | Error errors -> failwithf "Could not load rulesets: %A" errors
+
+        let namingRules =
+            [ "ShortClassName"
+              "LongClassName"
+              "ShortVariable"
+              "LongVariable"
+              "ShortMethodName"
+              "ConstantNamingConventions"
+              "BooleanGetMethodName" ]
+
+        let controversialRules =
+            [ "CamelCaseClassName"
+              "CamelCaseMethodName"
+              "CamelCasePropertyName"
+              "CamelCaseParameterName"
+              "CamelCaseVariableName" ]
+
+        Assert.Equal<string list>(
+            namingRules,
+            filtered
+                { noFilter with
+                    MinimumPriority = Some 3 }
+                namingAndControversial
+        )
+
+        Assert.Equal<string list>(
+            controversialRules,
+            filtered
+                { noFilter with
+                    MaximumPriority = Some 4 }
+                namingAndControversial
+        )
+
+        Assert.Equal<string list>(
+            namingRules @ controversialRules,
+            filtered
+                { noFilter with
+                    MinimumPriority = Some 4
+                    MaximumPriority = Some 3 }
+                namingAndControversial
+        )

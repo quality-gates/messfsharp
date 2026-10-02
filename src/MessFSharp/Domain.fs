@@ -215,6 +215,14 @@ module Domain =
           Priority: int
           Properties: Map<string, string> }
 
+    /// The criteria that select rules from the loaded rulesets. Rule names
+    /// match without regard to case. Priority bounds are inclusive.
+    type RuleFilter =
+        { Only: string list
+          Disable: string list
+          MinimumPriority: int option
+          MaximumPriority: int option }
+
     type RuleImplementation =
         { Name: string
           DefaultPriority: int
@@ -232,7 +240,6 @@ module Domain =
           BaseDirectory: string option
           Suffixes: string list
           Excludes: string list
-          Enable: string list
           Only: string list
           Disable: string list
           IgnoreTests: bool
@@ -307,7 +314,6 @@ module Domain =
               BaseDirectory = None
               Suffixes = suffixes
               Excludes = []
-              Enable = []
               Only = []
               Disable = []
               IgnoreTests = false
