@@ -429,7 +429,14 @@ module Rules =
 
         startsInside && endsInside
 
-    let private collectionModules = set [ "List"; "Array"; "Seq" ]
+    let private collectionSizeFunctions =
+        set
+            [ ("List", "length")
+              ("Array", "length")
+              ("Seq", "length")
+              ("Map", "count")
+              ("Set", "count")
+              ("String", "length") ]
 
     let private linesInsideLoops (file: AnalyzedFile) =
         let isRepeated token =
@@ -445,13 +452,12 @@ module Rules =
             let isCountProperty =
                 isMemberAccess && (token.Text = "Length" || token.Text = "Count")
 
-            let isCollectionLengthFunction =
-                token.Text = "length"
-                && isMemberAccess
+            let isCollectionSizeFunction =
+                isMemberAccess
                 && index >= 2
-                && collectionModules.Contains tokens[index - 2].Text
+                && collectionSizeFunctions.Contains((tokens[index - 2].Text, token.Text))
 
-            isCountProperty || isCollectionLengthFunction
+            isCountProperty || isCollectionSizeFunction
 
         tokens
         |> Array.mapi (fun index token -> index, token)

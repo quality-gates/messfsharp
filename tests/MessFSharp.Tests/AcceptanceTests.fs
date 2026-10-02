@@ -249,6 +249,26 @@ module AcceptanceTests =
         )
 
     [<Fact>]
+    let ``packaged executable reports Map Set and String counts inside loops`` () =
+        let source = relativeFixture "issue-193-count-in-loop-collection-functions.fs"
+
+        let result =
+            PackagedTool.run [ source; "text"; "design"; "--only"; "CountInLoopExpression" ]
+
+        Assert.Equal(2, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        Assert.Equal(
+            String.concat
+                newline
+                [ $"{source}:5:CountInLoopExpression: Collection count is evaluated inside a loop."
+                  $"{source}:6:CountInLoopExpression: Collection count is evaluated inside a loop."
+                  $"{source}:7:CountInLoopExpression: Collection count is evaluated inside a loop." ]
+            + newline,
+            result.StandardOutput
+        )
+
+    [<Fact>]
     let ``packaged executable reports ref cells mutated with incr and decr`` () =
         let source = relativeFixture "issue-157-ref-cell-mutations.fs"
 
