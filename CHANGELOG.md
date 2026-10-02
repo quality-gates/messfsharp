@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.13
+
+- Exempt upcasts, constraints, union payloads, and object expressions from `StaticAccess` (#189, #195).
+- Detect duplicate keys in direct `Map` constructor invocations (#190, #196).
+- Detect duplicate keys in `KeyValuePair.Create` and `new KeyValuePair` entries (#191, #197).
+- Classify inline object expression members as members (#192, #198).
+
 ## 0.1.12
 
 - Expose per-source analysis in engine (#166).
