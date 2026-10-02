@@ -151,7 +151,13 @@ module Engine =
         match Rulesets.load options.Rulesets with
         | Error errors -> reportWithRulesetErrors errors []
         | Ok loaded ->
-            match Rulesets.applyFilters options loaded with
+            let filter: RuleFilter =
+                { Only = options.Only
+                  Disable = options.Disable
+                  MinimumPriority = options.MinimumPriority
+                  MaximumPriority = options.MaximumPriority }
+
+            match Rulesets.filterSelections filter loaded with
             | Error errors -> reportWithRulesetErrors errors loaded.Warnings
             | Ok filtered ->
                 let discoveredFiles, discoveryErrors = Discovery.discover options

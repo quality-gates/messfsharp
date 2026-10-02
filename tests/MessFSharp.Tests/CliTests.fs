@@ -31,6 +31,44 @@ module CliTests =
         | other -> Assert.True(false, sprintf "Expected Analyze, got %A" other)
 
     [<Fact>]
+    let ``enable and only are aliases that collect one requested rule list`` () =
+        let parsed =
+            [ Cli.parse
+                  [| "src"
+                     "text"
+                     "fsharp"
+                     "--enable"
+                     "ShortVariable,LongVariable"
+                     "--only"
+                     "ElseExpression" |]
+              Cli.parse
+                  [| "src"
+                     "text"
+                     "fsharp"
+                     "--only"
+                     "ShortVariable,LongVariable"
+                     "--enable"
+                     "ElseExpression" |]
+              Cli.parse
+                  [| "src"
+                     "text"
+                     "fsharp"
+                     "--only"
+                     "ShortVariable,LongVariable"
+                     "--only"
+                     "ElseExpression" |] ]
+
+        let expected =
+            Analyze
+                { Defaults.analysisOptions with
+                    Paths = [ "src" ]
+                    Rulesets = [ "fsharp" ]
+                    Only = [ "ShortVariable"; "LongVariable"; "ElseExpression" ] }
+
+        for command in parsed do
+            Assert.Equal(expected, command)
+
+    [<Fact>]
     let ``analysis parses the report path base directory option`` () =
         match Cli.parse [| "src"; "json"; "fsharp"; "--basedir"; "repository" |] with
         | Analyze options -> Assert.Equal(Some "repository", options.BaseDirectory)

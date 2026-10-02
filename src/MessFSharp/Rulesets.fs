@@ -486,14 +486,12 @@ module Rulesets =
         else
             Error errors
 
-    let applyFilters (options: AnalysisOptions) loaded =
-        let requested = options.Only @ options.Enable
-
+    let filterSelections (filter: RuleFilter) (loaded: Loaded) : Result<Loaded, string list> =
         let requestedSet =
-            requested |> List.map (fun name -> name.ToLowerInvariant()) |> Set.ofList
+            filter.Only |> List.map (fun name -> name.ToLowerInvariant()) |> Set.ofList
 
         let disabledSet =
-            options.Disable |> List.map (fun name -> name.ToLowerInvariant()) |> Set.ofList
+            filter.Disable |> List.map (fun name -> name.ToLowerInvariant()) |> Set.ofList
 
         let missingRequested =
             requestedSet
@@ -526,9 +524,9 @@ module Rulesets =
                     (Set.isEmpty requestedSet
                      || requestedSet.Contains(selection.Name.ToLowerInvariant()))
                     && not (disabledSet.Contains(selection.Name.ToLowerInvariant()))
-                    && (options.MinimumPriority
+                    && (filter.MinimumPriority
                         |> Option.forall (fun minimum -> selection.Priority <= minimum))
-                    && (options.MaximumPriority
+                    && (filter.MaximumPriority
                         |> Option.forall (fun maximum -> selection.Priority >= maximum)))
 
             Ok { loaded with Selections = selected }

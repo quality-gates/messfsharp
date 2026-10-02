@@ -194,11 +194,6 @@ Options:
 
                                 if List.isEmpty selected then
                                     Invalid(sprintf "%s requires at least one rule." optionName)
-                                elif optionName = "--enable" then
-                                    continueWith
-                                        { options with
-                                            Enable = options.Enable @ selected }
-                                        nextIndex
                                 else
                                     continueWith
                                         { options with
