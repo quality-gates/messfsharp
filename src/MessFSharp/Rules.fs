@@ -250,6 +250,11 @@ module Rules =
     let private mutationObserved (file: AnalyzedFile) (declaration: Declaration) =
         let startLine, endLine = mutationScope file declaration
 
+        let isRefCellUpdate index =
+            index >= 0
+            && index < file.Tokens.Length
+            && (file.Tokens[index].Text = "incr" || file.Tokens[index].Text = "decr")
+
         file.Tokens
         |> Array.mapi (fun index token -> index, token)
         |> Array.exists (fun (index, token) ->
@@ -261,8 +266,11 @@ module Rules =
                    binding.Name = declaration.Name
                    && binding.Location.StartLine = declaration.Location.StartLine
                    && binding.Kind = declaration.Kind)
-            && ((index > 0
-                 && (file.Tokens[index - 1].Text = "incr" || file.Tokens[index - 1].Text = "decr"))
+            && (isRefCellUpdate (index - 1)
+                || (index > 1 && file.Tokens[index - 1].Text = "(" && isRefCellUpdate (index - 2))
+                || (index + 1 < file.Tokens.Length
+                    && file.Tokens[index + 1].Text = "|>"
+                    && isRefCellUpdate (index + 2))
                 || (index + 1 < file.Tokens.Length
                     && (file.Tokens[index + 1].Text = "<-" || file.Tokens[index + 1].Text = ":="))
                 || (index + 3 < file.Tokens.Length
