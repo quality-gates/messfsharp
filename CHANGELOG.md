@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.14
+
+- Detect `Map`, `Set`, and `String` counts in loops (#193, #200).
+- Observe parenthesized and piped `incr`/`decr` mutations (#194, #201).
+
 ## 0.1.13
 
 - Exempt upcasts, constraints, union payloads, and object expressions from `StaticAccess` (#189, #195).
