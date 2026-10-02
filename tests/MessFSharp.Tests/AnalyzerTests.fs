@@ -4013,3 +4013,56 @@ let compute () =
             |> List.sort
 
         Assert.Equal<(string * int * string) list>(expected, actual)
+
+    [<Fact>]
+    let ``inline object expression and interface members are not modeled as local bindings`` () =
+        let analyzed =
+            analyzeSource
+                """module Issue192
+
+open System
+
+let createWorker () =
+    let disposable = { new IDisposable with member _.Dispose() = () }
+    disposable
+
+let describe () =
+    let formatter = { new Object() with override _.ToString() = "formatter" }
+    formatter.ToString()
+
+type Worker() =
+    interface IDisposable with member _.Dispose() = ()
+
+let unusedLocal () =
+    let unused = 1
+    0
+"""
+
+        let inlineMembers =
+            analyzed.Declarations
+            |> List.filter (fun item -> item.Name = "Dispose" || item.Name = "ToString")
+            |> List.map (fun item -> item.Name, item.Kind, item.Location.StartLine)
+
+        Assert.Equal<(string * DeclarationKind * int) list>(
+            [ "Dispose", Member, 6; "ToString", Member, 10; "Dispose", Member, 14 ],
+            inlineMembers
+        )
+
+        let violations ruleName rulesetName =
+            let rule = Rules.all |> List.find (fun item -> item.Name = ruleName)
+
+            let selection =
+                { Name = ruleName
+                  RulesetName = rulesetName
+                  Priority = 3
+                  Properties = Map.empty }
+
+            rule.Check analyzed selection
+            |> List.map (fun violation -> violation.Location.StartLine, violation.Description)
+
+        Assert.Equal<(int * string) list>(
+            [ 17, "Local binding 'unused' is never used." ],
+            violations "UnusedLocalVariable" "unusedcode"
+        )
+
+        Assert.Empty(violations "CamelCaseVariableName" "controversial")

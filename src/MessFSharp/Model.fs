@@ -1958,22 +1958,30 @@ module Model =
                 let parameterCount = SyntaxModel.inputCount fact
                 let isFunction = parameterCount > 0
 
+                // Members written after other code on their line, such as `{ new IDisposable with member ... }`,
+                // are only known to the compiler.
                 let isModuleLevel =
-                    enclosingBody (result |> Seq.toList) fact.Location.StartLine |> Option.isNone
+                    not fact.IsMember
+                    && enclosingBody (result |> Seq.toList) fact.Location.StartLine |> Option.isNone
 
                 let startLine = fact.Location.StartLine
 
                 let endLine =
-                    if isFunction then
+                    if isFunction && not fact.IsMember then
                         scopeEnd source startLine (indentation (lineAt source.Lines startLine)) Function
                     else
                         fact.Location.EndLine
+
+                let kind =
+                    if fact.IsMember then Member
+                    elif isFunction then Function
+                    else Value
 
                 result.Add(
                     makeDeclaration
                         source
                         fact.Name
-                        (if isFunction then Function else Value)
+                        kind
                         startLine
                         fact.Location.StartColumn
                         (parent |> Option.map (fun item -> item.Name))
@@ -1985,7 +1993,7 @@ module Model =
                         (isLiteralDeclaration source.Lines fact.Location.StartLine)
                         false
                         false
-                        false
+                        fact.IsMember
                         isFunction
                         isModuleLevel
                         parameterCount

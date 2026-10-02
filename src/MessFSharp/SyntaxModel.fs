@@ -23,6 +23,7 @@ module SyntaxModel =
           IsMutable: bool
           ParameterCount: int
           HasImplicitInput: bool
+          IsMember: bool
           BodyLocation: SourceLocation option
           Parameters: (string * SourceLocation) list }
 
@@ -248,7 +249,7 @@ module SyntaxModel =
         | SynExpr.MatchLambda _ -> true
         | _ -> false
 
-    let private bindingFacts fileName pattern isMutable nodeRange body =
+    let private bindingFacts fileName pattern isMutable isMember nodeRange body =
         let bindingLocation = location fileName nodeRange
 
         match patternName pattern with
@@ -262,6 +263,7 @@ module SyntaxModel =
                 IsMutable = isMutable
                 ParameterCount = parameterCount
                 HasImplicitInput = parameterCount = 0 && hasImplicitInput body
+                IsMember = isMember
                 BodyLocation = Some(location fileName body.Range)
                 Parameters = parameters } ]
         | None ->
@@ -273,6 +275,7 @@ module SyntaxModel =
                   IsMutable = isMutable
                   ParameterCount = 0
                   HasImplicitInput = false
+                  IsMember = false
                   BodyLocation = Some(location fileName body.Range)
                   Parameters = [] })
 
@@ -295,6 +298,7 @@ module SyntaxModel =
                       IsMutable = false
                       ParameterCount = 0
                       HasImplicitInput = false
+                      IsMember = false
                       BodyLocation = None
                       Parameters = [] }
 
@@ -314,6 +318,7 @@ module SyntaxModel =
                       IsMutable = false
                       ParameterCount = 0
                       HasImplicitInput = false
+                      IsMember = false
                       BodyLocation = None
                       Parameters = [] }
 
@@ -324,9 +329,16 @@ module SyntaxModel =
                   Parent = None }
                 :: scopes,
                 references
-            | SyntaxNode.SynBinding(SynBinding(headPat = pattern; isMutable = isMutable; expr = body; range = nodeRange)) ->
+            | SyntaxNode.SynBinding(SynBinding(
+                headPat = pattern
+                isMutable = isMutable
+                valData = SynValData(memberFlags = memberFlags)
+                expr = body
+                range = nodeRange)) ->
                 let bindingLocation = location fileName nodeRange
-                let facts = bindingFacts fileName pattern isMutable nodeRange body
+
+                let facts =
+                    bindingFacts fileName pattern isMutable memberFlags.IsSome nodeRange body
 
                 facts @ declarations,
                 expressions,
