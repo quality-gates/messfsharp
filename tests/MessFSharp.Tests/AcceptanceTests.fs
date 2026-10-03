@@ -309,6 +309,37 @@ module AcceptanceTests =
         )
 
     [<Fact>]
+    let ``packaged executable matches SuppressMessage rule names case-insensitively`` () =
+        let source = relativeFixture "issue-205-case-insensitive-suppression.fs"
+
+        let result =
+            PackagedTool.run [ source; "text"; "codesize"; "--only"; "CyclomaticComplexity" ]
+
+        Assert.Equal(2, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        Assert.Equal(
+            $"{source}:34:CyclomaticComplexity: Cyclomatic complexity 11 exceeds maximum 10."
+            + newline,
+            result.StandardOutput
+        )
+
+        let strict =
+            PackagedTool.run [ source; "text"; "codesize"; "--only"; "CyclomaticComplexity"; "--strict" ]
+
+        Assert.Equal(2, strict.ExitCode)
+
+        Assert.Equal(
+            String.concat
+                newline
+                [ $"{source}:6:CyclomaticComplexity: Cyclomatic complexity 11 exceeds maximum 10."
+                  $"{source}:20:CyclomaticComplexity: Cyclomatic complexity 11 exceeds maximum 10."
+                  $"{source}:34:CyclomaticComplexity: Cyclomatic complexity 11 exceeds maximum 10." ]
+            + newline,
+            strict.StandardOutput
+        )
+
+    [<Fact>]
     let ``packaged executable recognizes standard terminating functions in else expressions`` () =
         let source = relativeFixture "issue-156-terminating-functions.fs"
 
