@@ -130,3 +130,7 @@ length check. `convention` accepts PascalCase, camelCase, or uppercase.
 `checkParameterizedMethods` includes boolean members with parameters.
 `unwanted-functions` is a comma-separated conservative marker/call list, and
 `report-immutable=true` broadens `GlobalVariable` beyond observed mutation.
+
+The [2026-10-03 exploratory testing report](exploratory-testing/2026-10-03-messfsharp.md)
+records how custom rulesets, suppression, and CI output were exercised on real
+projects, and the bugs found.
