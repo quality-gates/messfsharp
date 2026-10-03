@@ -3790,6 +3790,46 @@ let compute () =
         Assert.DoesNotContain("UnusedLocalVariable", ruleNames)
 
     [<Fact>]
+    let ``XML doc comments above a class do not hide its field references`` () =
+        let analyzed =
+            analyzeSource
+                """module M
+
+/// Returns true once a value is set.
+type Node() =
+    let mutable hasValue = false
+    let unusedField = 0
+    member _.HasValue = hasValue
+
+/// Attributed.
+[<AllowNullLiteral>]
+type Leaf() =
+    let count = 1
+    member _.Count = count
+"""
+
+        let typeLines =
+            analyzed.Declarations
+            |> List.filter (fun declaration -> declaration.Kind = Type)
+            |> List.map (fun declaration -> declaration.Name, declaration.Location.StartLine)
+
+        Assert.Equal<(string * int) list>([ "Node", 4; "Leaf", 10 ], typeLines)
+
+        let selection =
+            { Name = "UnusedPrivateField"
+              RulesetName = "unusedcode"
+              Priority = 3
+              Properties = Map.empty }
+
+        let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedPrivateField")
+
+        Assert.Equal<string list>(
+            [ "Private field 'unusedField' is never used." ],
+            rule.Check analyzed selection
+            |> List.map (fun violation -> violation.Description)
+        )
+
+    [<Fact>]
     let ``static let-bound class fields are not duplicated as value declarations`` () =
         let analyzed = analyzeSource (File.ReadAllText(fixture "static-field.fs"))
 

@@ -49,6 +49,18 @@ module SyntaxModel =
           EndLine = max 1 range.EndLine
           EndColumn = max 1 (range.EndColumn + 1) }
 
+    // The compiler's type range starts at any XML doc comment. A type starts at its first attribute or keyword.
+    let private typeRange
+        (SynTypeDefn(typeInfo = SynComponentInfo(attributes = attributes); trivia = trivia) as definition)
+        =
+        let start =
+            attributes
+            |> List.map (fun attributeList -> attributeList.Range.Start)
+            |> List.append [ trivia.LeadingKeyword.Range.Start ]
+            |> List.minBy (fun position -> position.Line, position.Column)
+
+        Range.mkRange definition.Range.FileName start definition.Range.End
+
     let rec private patternName pattern =
         match pattern with
         | SynPat.Named(SynIdent(identifier, _), _, _, _) -> Some identifier.idText
@@ -310,11 +322,11 @@ module SyntaxModel =
                 :: scopes,
                 references
             | SyntaxNode.SynTypeDefn(SynTypeDefn(
-                typeInfo = SynComponentInfo(longId = identifiers); typeRepr = representation; range = nodeRange)) ->
+                typeInfo = SynComponentInfo(longId = identifiers); typeRepr = representation) as definition) ->
                 let fact =
                     { Name = identifierName identifiers
                       Kind = TypeFact(typeShape representation)
-                      Location = location fileName nodeRange
+                      Location = location fileName (typeRange definition)
                       IsMutable = false
                       ParameterCount = 0
                       HasImplicitInput = false
