@@ -49,6 +49,9 @@ module Model =
         declarationRegex
             "^\\s*(?:(public|private|internal|protected)\\s+)?(?:(static)\\s+)?(?:(abstract\\s+member|abstract|override|default\\s+member|member)\\s+)(.+?)(?:\\s*=|\\s+with|\\s*:|$)"
 
+    let private propertyKeywordPattern =
+        declarationRegex "\\bmember\\s+val\\s|\\bwith\\s+(?:get|set)\\b"
+
     let private letPattern =
         declarationRegex
             "^\\s*let!?\\s+(?:(?:(?<accessibility>public|private|internal)|(?<modifier>inline|rec)|(?<mutable>mutable))\\s+)*(?<binding>.+?)\\s*="
@@ -778,7 +781,10 @@ module Model =
         then
             declarations
             |> List.filter (fun candidate ->
-                (candidate.Kind = Function || candidate.Kind = Member || candidate.Kind = Value)
+                (candidate.Kind = Function
+                 || candidate.Kind = Member
+                 || candidate.Kind = Property
+                 || candidate.Kind = Value)
                 && candidate.Location.StartLine < declaration.Location.StartLine
                 && candidate.ScopeStartLine <= declaration.Location.StartLine
                 && candidate.ScopeEndLine >= declaration.Location.StartLine)
@@ -1115,6 +1121,15 @@ module Model =
                 | _ -> None)
             |> Set.ofList
 
+        // The first member binding on a line gives the member kind of the declaration on that line.
+        let memberBindingKinds =
+            facts.Declarations
+            |> List.filter (fun fact -> fact.Kind = SyntaxModel.BindingFact && fact.IsMember)
+            |> List.sortBy (fun fact -> fact.Location.StartLine, fact.Location.StartColumn)
+            |> List.distinctBy (fun fact -> fact.Location.StartLine)
+            |> List.map (fun fact -> fact.Location.StartLine, fact.IsProperty)
+            |> Map.ofList
+
         for lineNumber in 1 .. source.Lines.Length do
             let line = source.Lines[lineNumber - 1]
             let indent = indentation line
@@ -1313,15 +1328,19 @@ module Model =
                                         parsedParameterCount
 
                                 let kind =
-                                    let propertyLike =
-                                        line.IndexOf("member val", StringComparison.OrdinalIgnoreCase) >= 0
-                                        || line.IndexOf(" with", StringComparison.OrdinalIgnoreCase) >= 0
-                                        || (parameterCount = 0
-                                            && memberText.IndexOf('(') < 0
-                                            && (line.Contains("=", StringComparison.Ordinal)
-                                                || line.Contains(":", StringComparison.Ordinal)))
+                                    match Map.tryFind lineNumber memberBindingKinds with
+                                    | Some true -> Property
+                                    | Some false -> Member
+                                    | None ->
+                                        // Auto-properties and abstract members have no binding.
+                                        let propertyLike =
+                                            propertyKeywordPattern.IsMatch line
+                                            || (parameterCount = 0
+                                                && memberText.IndexOf('(') < 0
+                                                && (line.Contains("=", StringComparison.Ordinal)
+                                                    || line.Contains(":", StringComparison.Ordinal)))
 
-                                    if propertyLike then Property else Member
+                                        if propertyLike then Property else Member
 
                                 add
                                     name
@@ -1977,7 +1996,8 @@ module Model =
                         fact.Location.EndLine
 
                 let kind =
-                    if fact.IsMember then Member
+                    if fact.IsProperty then Property
+                    elif fact.IsMember then Member
                     elif isFunction then Function
                     else Value
 

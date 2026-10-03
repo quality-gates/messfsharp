@@ -958,6 +958,111 @@ module AcceptanceTests =
         Assert.Equal(0, document.RootElement.GetProperty("errors").GetArrayLength())
         Assert.Equal(0, document.RootElement.GetProperty("violations").GetArrayLength())
 
+    // These sources keep layouts that the formatter rewrites, so they are not fixture files.
+    let private runOnSource (source: string) arguments =
+        let directory = Directory.CreateTempSubdirectory("messfsharp-member-kinds-")
+
+        try
+            File.WriteAllText(Path.Combine(directory.FullName, "M.fs"), source)
+            PackagedTool.runFrom directory.FullName ("M.fs" :: arguments)
+        finally
+            directory.Delete(true)
+
+    [<Fact>]
+    let ``locals used in property and method bodies are not reported as unused`` () =
+        let source =
+            String.concat
+                "\n"
+                [ "module Shop"
+                  ""
+                  "type Calc() ="
+                  "    member _.Total ="
+                  "        let subtotal = 10"
+                  "        subtotal * 2"
+                  ""
+                  "    static member Validate(x: int) ="
+                  "        let doubled = x * 2"
+                  "        doubled + 1"
+                  ""
+                  "    member _.Describe(x: int) = match x with"
+                  "                                | 0 -> \"zero\""
+                  "                                | n ->"
+                  "                                    let label = string n"
+                  "                                    label + \"!\""
+                  ""
+                  "    member _.Count ="
+                  "        let ignoredInProperty = 10"
+                  "        3"
+                  ""
+                  "    static member Check(x: int) ="
+                  "        let ignoredInMethod = x * 2"
+                  "        x + 1"
+                  "" ]
+
+        let result =
+            runOnSource source [ "text"; "unusedcode"; "--only"; "UnusedLocalVariable" ]
+
+        Assert.Equal(2, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        Assert.Equal(
+            String.concat
+                newline
+                [ "M.fs:19:UnusedLocalVariable: Local binding 'ignoredInProperty' is never used."
+                  "M.fs:23:UnusedLocalVariable: Local binding 'ignoredInMethod' is never used." ]
+            + newline,
+            result.StandardOutput
+        )
+
+    [<Fact>]
+    let ``member kind comes from member syntax, not from member names or body text`` () =
+        let source =
+            String.concat
+                "\n"
+                [ "module Shop"
+                  ""
+                  "type Calc() ="
+                  "    static member validateInput(x: int) = x + 1"
+                  ""
+                  "    member _.describe(x: int) = match x with"
+                  "                                | 0 -> \"zero\""
+                  "                                | _ -> \"other\""
+                  ""
+                  "    member _.total = 3"
+                  ""
+                  "    member _.kind = match 1 with"
+                  "                    | 0 -> \"zero\""
+                  "                    | _ -> \"other\""
+                  ""
+                  "    member val running = 0 with get, set"
+                  ""
+                  "    member _.current with get () = 0"
+                  "" ]
+
+        let result =
+            runOnSource
+                source
+                [ "text"
+                  "controversial"
+                  "--only"
+                  "CamelCaseMethodName,CamelCasePropertyName" ]
+
+        Assert.Equal(2, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        Assert.Equal(
+            String.concat
+                newline
+                [ "M.fs:4:CamelCaseMethodName: Member name 'validateInput' should use PascalCase."
+                  "M.fs:6:CamelCaseMethodName: Member name 'describe' should use PascalCase."
+                  "M.fs:10:CamelCasePropertyName: Property name 'total' should use PascalCase."
+                  "M.fs:12:CamelCasePropertyName: Property name 'kind' should use PascalCase."
+                  "M.fs:16:CamelCasePropertyName: Property name 'running' should use PascalCase."
+                  "M.fs:18:CamelCasePropertyName: Property name 'current' should use PascalCase." ]
+            + newline,
+            result.StandardOutput
+        )
+
     [<Fact>]
     let ``SARIF artifact locations percent-encode spaces and hashes in report paths`` () =
         let directory = Directory.CreateTempSubdirectory("messfsharp-sarif-uri-")

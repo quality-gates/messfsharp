@@ -24,6 +24,7 @@ module SyntaxModel =
           ParameterCount: int
           HasImplicitInput: bool
           IsMember: bool
+          IsProperty: bool
           BodyLocation: SourceLocation option
           Parameters: (string * SourceLocation) list }
 
@@ -261,7 +262,18 @@ module SyntaxModel =
         | SynExpr.MatchLambda _ -> true
         | _ -> false
 
-    let private bindingFacts fileName pattern isMutable isMember nodeRange body =
+    /// A member without argument patterns, such as `member x.Total = ...`, is a property.
+    /// The parser gives `with get` and `with set` members a property member kind.
+    let private isPropertyMember (memberFlags: SynMemberFlags option) pattern =
+        match memberFlags with
+        | Some flags ->
+            match flags.MemberKind, pattern with
+            | (SynMemberKind.PropertyGet | SynMemberKind.PropertySet | SynMemberKind.PropertyGetSet), _ -> true
+            | SynMemberKind.Member, SynPat.LongIdent(argPats = SynArgPats.Pats []) -> true
+            | _ -> false
+        | None -> false
+
+    let private bindingFacts fileName pattern isMutable (memberFlags: SynMemberFlags option) nodeRange body =
         let bindingLocation = location fileName nodeRange
 
         match patternName pattern with
@@ -275,7 +287,8 @@ module SyntaxModel =
                 IsMutable = isMutable
                 ParameterCount = parameterCount
                 HasImplicitInput = parameterCount = 0 && hasImplicitInput body
-                IsMember = isMember
+                IsMember = memberFlags.IsSome
+                IsProperty = isPropertyMember memberFlags pattern
                 BodyLocation = Some(location fileName body.Range)
                 Parameters = parameters } ]
         | None ->
@@ -288,6 +301,7 @@ module SyntaxModel =
                   ParameterCount = 0
                   HasImplicitInput = false
                   IsMember = false
+                  IsProperty = false
                   BodyLocation = Some(location fileName body.Range)
                   Parameters = [] })
 
@@ -311,6 +325,7 @@ module SyntaxModel =
                       ParameterCount = 0
                       HasImplicitInput = false
                       IsMember = false
+                      IsProperty = false
                       BodyLocation = None
                       Parameters = [] }
 
@@ -331,6 +346,7 @@ module SyntaxModel =
                       ParameterCount = 0
                       HasImplicitInput = false
                       IsMember = false
+                      IsProperty = false
                       BodyLocation = None
                       Parameters = [] }
 
@@ -349,8 +365,7 @@ module SyntaxModel =
                 range = nodeRange)) ->
                 let bindingLocation = location fileName nodeRange
 
-                let facts =
-                    bindingFacts fileName pattern isMutable memberFlags.IsSome nodeRange body
+                let facts = bindingFacts fileName pattern isMutable memberFlags nodeRange body
 
                 facts @ declarations,
                 expressions,
