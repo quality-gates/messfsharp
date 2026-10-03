@@ -309,6 +309,27 @@ module AcceptanceTests =
         )
 
     [<Fact>]
+    let ``packaged executable recognizes named SuppressMessage checkIds in either order`` () =
+        let source = relativeFixture "issue-206-named-suppress-message.fs"
+
+        let result =
+            PackagedTool.run
+                [ fixture "issue-206-named-suppress-message.fs"
+                  "text"
+                  "codesize"
+                  "--only"
+                  "CyclomaticComplexity" ]
+
+        Assert.Equal(2, result.ExitCode)
+        Assert.Equal("", result.StandardError)
+
+        Assert.Equal(
+            $"{source}:48:CyclomaticComplexity: Cyclomatic complexity 11 exceeds maximum 10."
+            + newline,
+            result.StandardOutput
+        )
+
+    [<Fact>]
     let ``packaged executable matches SuppressMessage rule names case-insensitively`` () =
         let source = relativeFixture "issue-205-case-insensitive-suppression.fs"
 
