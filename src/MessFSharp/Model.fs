@@ -69,7 +69,8 @@ module Model =
         declarationRegex "=\\s*(``[^`]+``|[A-Za-z_][\\w']*)"
 
     let private suppressionPattern =
-        declarationRegex "SuppressMessage(?:Attribute)?\\s*\\(\\s*\"[^\"]*\"\\s*,\\s*\"([^\"]+)\""
+        declarationRegex
+            "SuppressMessage(?:Attribute)?\\s*\\(\\s*(?:\"[^\"]*\"\\s*,\\s*\"(?<positional>[^\"]+)\"|(?:[A-Za-z_]\\w*\\s*=\\s*\"[^\"]*\"\\s*,\\s*)*checkId\\s*=\\s*\"(?<named>[^\"]+)\")"
 
     let private namePattern =
         declarationRegex "(?:``[^`]+``|[A-Za-z_][\\w']*|[!%&*+\\-./<=>?@^|~:]+)"
@@ -177,7 +178,10 @@ module Model =
 
         suppressionPattern.Matches(attributes)
         |> Seq.cast<Match>
-        |> Seq.choose (fun item -> matchGroup item "1")
+        |> Seq.choose (fun item ->
+            match matchGroup item "positional" with
+            | Some checkId -> Some checkId
+            | None -> matchGroup item "named")
         |> Set.ofSeq
 
     let private removeDecorations (value: string) =
