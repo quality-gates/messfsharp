@@ -28,7 +28,8 @@ module Engine =
         |> List.exists (fun declaration ->
             declaration.Location.StartLine <= violation.Location.StartLine
             && declaration.ScopeEndLine >= violation.Location.StartLine
-            && declaration.SuppressedRules.Contains(violation.RuleName))
+            && declaration.SuppressedRules
+               |> Set.exists (fun rule -> String.Equals(rule, violation.RuleName, StringComparison.OrdinalIgnoreCase)))
 
     let private runRules (file: AnalyzedFile) (selections: RuleSelection list) =
         selections
