@@ -602,6 +602,27 @@ module AcceptanceTests =
             )
 
     [<Fact>]
+    let ``GitHub reports a missing input path without inventing a location`` () =
+        let directory = Directory.CreateTempSubdirectory("messfsharp-github-missing-path-")
+
+        try
+            let missingPath = Path.Combine(directory.FullName, "missingdir")
+            Assert.False(Directory.Exists(missingPath))
+
+            let result =
+                PackagedTool.runFrom directory.FullName [ "missingdir"; "github"; "fsharp" ]
+
+            Assert.Equal(1, result.ExitCode)
+            Assert.Equal($"missingdir: error: Requested path does not exist.{newline}", result.StandardError)
+
+            Assert.Equal(
+                $"::error file=missingdir,title=messfsharp::Requested path does not exist.{newline}",
+                result.StandardOutput
+            )
+        finally
+            directory.Delete(true)
+
+    [<Fact>]
     let ``discovery options and duplicate paths are honored by the packaged tool`` () =
         let directory = Directory.CreateTempSubdirectory("messfsharp-discovery-")
 

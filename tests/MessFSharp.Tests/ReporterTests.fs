@@ -227,6 +227,30 @@ module ReporterTests =
         Assert.Contains("::Global error: note, please.", rendered)
 
     [<Fact>]
+    let ``GitHub annotations include files when errors have no location`` () =
+        let fileOnlyReport =
+            { report with
+                Violations = []
+                Errors =
+                    [ { File = Some "src/err,or:file.fs"
+                        Location = None
+                        Message = "Requested path does not exist." }
+                      { File = None
+                        Location = None
+                        Message = "Global error." } ] }
+
+        let rendered = Reporter.format GitHub false fileOnlyReport
+
+        Assert.Equal(
+            String.concat
+                Environment.NewLine
+                [ "::error file=src/err%2Cor%3Afile.fs,title=messfsharp::Requested path does not exist."
+                  "::error title=messfsharp::Global error." ]
+            + Environment.NewLine,
+            rendered
+        )
+
+    [<Fact>]
     let ``analysis sorts a compiled report before reporters render it`` () =
         let directory = Directory.CreateTempSubdirectory("messfsharp-reporter-order-")
 

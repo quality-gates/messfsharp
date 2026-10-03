@@ -43,6 +43,14 @@ module internal GitHubReporter =
                         (escapeAnnotationData error.Message)
                 )
                 |> ignore
+            | Some file, None ->
+                builder.AppendLine(
+                    sprintf
+                        "::error file=%s,title=messfsharp::%s"
+                        (escapeAnnotationProperty file)
+                        (escapeAnnotationData error.Message)
+                )
+                |> ignore
             | _ ->
                 builder.AppendLine(sprintf "::error title=messfsharp::%s" (escapeAnnotationData error.Message))
                 |> ignore
