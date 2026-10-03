@@ -33,7 +33,8 @@ module Parsing =
             let options =
                 { FSharpParsingOptions.Default with
                     SourceFiles = [| parsePath |]
-                    IsInteractive = source.Kind = Script }
+                    IsInteractive = source.Kind = Script
+                    IsExe = source.Kind = Implementation }
 
             let results =
                 checker.Value.ParseFile(parsePath, SourceText.ofString source.Text, options)

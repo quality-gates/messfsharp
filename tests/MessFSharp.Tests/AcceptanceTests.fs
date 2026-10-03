@@ -131,6 +131,24 @@ module AcceptanceTests =
         Assert.Equal("", version.StandardError)
 
     [<Fact>]
+    let ``packaged executable parses the stock console template entry point`` () =
+        let source = fixture "stock-console-template"
+        let result = PackagedTool.run [ source; "text"; "naming" ]
+
+        Assert.Equal(0, result.ExitCode)
+        Assert.Equal("", result.StandardOutput)
+        Assert.Equal("", result.StandardError)
+
+    [<Fact>]
+    let ``packaged executable keeps interactive script parsing`` () =
+        let source = fixture "script.fsx"
+        let result = PackagedTool.run [ source; "text"; "naming" ]
+
+        Assert.Equal(0, result.ExitCode)
+        Assert.Equal("", result.StandardOutput)
+        Assert.Equal("", result.StandardError)
+
+    [<Fact>]
     let ``report paths are relative to the working directory across all formats`` () =
         let relativeSource = Path.Combine("tests", "Fixtures", "bad.fs")
         let absoluteSource = PackagedTool.path relativeSource
