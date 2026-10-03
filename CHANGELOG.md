@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.15
+
+- Filter ruleset selections through a dedicated `RuleFilter` (#188, #203).
+- Match `SuppressMessage` rule names case-insensitively (#205, #212).
+- Recognize named `SuppressMessage` check IDs (#206, #213).
+
 ## 0.1.14
 
 - Detect `Map`, `Set`, and `String` counts in loops (#193, #200).
