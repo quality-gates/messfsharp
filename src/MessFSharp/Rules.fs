@@ -51,30 +51,34 @@ module Rules =
                 None)
         |> Option.defaultValue fallback
 
-    let private context (file: AnalyzedFile) (declaration: Declaration option) =
-        let line =
-            declaration
-            |> Option.map (fun item -> item.Location.StartLine)
-            |> Option.defaultValue 1
+    let private context (file: AnalyzedFile) (location: SourceLocation) =
+        let enclosing = enclosingDeclarations file.Declarations location.StartLine
 
-        let enclosing (kind: DeclarationKind) =
-            file.Declarations
-            |> List.filter (fun item ->
-                item.Kind = kind && item.Location.StartLine <= line && item.ScopeEndLine >= line)
+        let innermost predicate =
+            enclosing
+            |> List.filter predicate
             |> List.sortByDescending (fun item -> item.Location.StartLine)
             |> List.tryHead
             |> Option.map (fun item -> item.Name)
 
-        { Namespace = enclosing Namespace
-          Module = enclosing Module
-          Type = enclosing Type
-          Member =
-            declaration
-            |> Option.bind (fun item ->
-                if item.Kind = Member || item.Kind = Property || item.Kind = Constructor then
-                    Some item.Name
-                else
-                    None) }
+        // A primary constructor has the scope of its type. It is the member only for a violation at its own location.
+        let isPrimaryConstructor (item: Declaration) =
+            item.Kind = Constructor && item.ParentStartLine = Some item.Location.StartLine
+
+        let isMember (item: Declaration) =
+            match item.Kind with
+            | Member
+            | Property -> true
+            | Constructor ->
+                not (isPrimaryConstructor item)
+                || (item.Location.StartLine = location.StartLine
+                    && item.Location.StartColumn = location.StartColumn)
+            | _ -> false
+
+        { Namespace = innermost (fun item -> item.Kind = Namespace)
+          Module = innermost (fun item -> item.Kind = Module)
+          Type = innermost (fun item -> item.Kind = Type)
+          Member = innermost isMember }
 
     let private violation
         (file: AnalyzedFile)
@@ -104,7 +108,7 @@ module Rules =
           RulesetName = selection.RulesetName
           Priority = selection.Priority
           Description = description
-          Context = context file declaration
+          Context = context file location
           HelpUri = ruleUri selection.Name }
 
     let private allDeclarations (file: AnalyzedFile) (predicate: Declaration -> bool) =
@@ -2290,23 +2294,12 @@ module Rules =
                 file.ImplicitFlows
                 |> List.filter (fun flow -> flow.Direction = direction && (flow.Source = TypeState) = typeState)
                 |> List.map (fun flow ->
-                    let owner =
-                        file.Declarations
-                        |> List.tryFind (fun declaration ->
-                            declaration.Name = flow.Owner
-                            && declaration.Location.StartLine <= flow.OwnerLine
-                            && flow.OwnerLine <= declaration.Location.EndLine
-                            && (declaration.Kind = Function
-                                || declaration.Kind = Member
-                                || declaration.Kind = Property
-                                || declaration.Kind = Constructor))
-
                     { Location = flow.Location
                       RuleName = selection.Name
                       RulesetName = selection.RulesetName
                       Priority = selection.Priority
                       Description = flowDescription flow
-                      Context = context file owner
+                      Context = context file flow.Location
                       HelpUri = ruleUri selection.Name }) }
 
     let implicitInput =
