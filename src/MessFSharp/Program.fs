@@ -14,7 +14,7 @@ module Program =
 
         match informational with
         | [| attribute |] -> (attribute :?> Reflection.AssemblyInformationalVersionAttribute).InformationalVersion
-        | _ -> "0.1.15"
+        | _ -> "0.1.16"
 
     let exitCode =
         function
