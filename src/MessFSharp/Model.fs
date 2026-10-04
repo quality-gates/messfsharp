@@ -736,8 +736,7 @@ module Model =
              || declaration.Kind = Namespace
              || declaration.Kind = Type)
             && declaration.Location.StartLine < line
-            && declaration.ScopeStartLine <= line
-            && declaration.ScopeEndLine >= line)
+            && scopeContains line declaration)
         |> List.sortByDescending (fun declaration -> declaration.Location.StartLine)
         |> List.tryHead
 
@@ -749,8 +748,7 @@ module Model =
              || declaration.Kind = Property
              || declaration.Kind = Value)
             && declaration.Location.StartLine < line
-            && declaration.ScopeStartLine <= line
-            && declaration.ScopeEndLine >= line)
+            && scopeContains line declaration)
         |> List.sortByDescending (fun declaration -> declaration.Location.StartLine)
         |> List.tryHead
 
@@ -768,8 +766,7 @@ module Model =
                 && (match declaration.ParentStartLine with
                     | Some line -> candidate.Location.StartLine = line
                     | None -> true)
-                && candidate.ScopeStartLine <= declaration.Location.StartLine
-                && candidate.ScopeEndLine >= declaration.Location.StartLine)
+                && scopeContains declaration.Location.StartLine candidate)
             |> List.sortByDescending (fun candidate -> candidate.ScopeStartLine)
             |> List.tryHead
             |> Option.map (fun owner -> owner.ScopeStartLine, owner.ScopeEndLine)
@@ -786,8 +783,7 @@ module Model =
                  || candidate.Kind = Property
                  || candidate.Kind = Value)
                 && candidate.Location.StartLine < declaration.Location.StartLine
-                && candidate.ScopeStartLine <= declaration.Location.StartLine
-                && candidate.ScopeEndLine >= declaration.Location.StartLine)
+                && scopeContains declaration.Location.StartLine candidate)
             |> List.sortByDescending (fun candidate -> candidate.Location.StartLine)
             |> List.tryHead
             |> Option.map (fun enclosing -> enclosing.ScopeStartLine, enclosing.ScopeEndLine)
@@ -1561,8 +1557,7 @@ module Model =
                         |> List.exists (fun d ->
                             d.Kind = Type
                             && d.Location.StartLine > typeDeclaration.Location.StartLine
-                            && d.Location.StartLine <= lineNumber
-                            && d.ScopeEndLine >= lineNumber)
+                            && encloses lineNumber d)
                         |> not
 
                 if isDirectTypeLine && indentation line <= typeIndent + 4 then
@@ -1661,8 +1656,7 @@ module Model =
                         |> List.exists (fun d ->
                             d.Kind = Type
                             && d.Location.StartLine > typeDeclaration.Location.StartLine
-                            && d.Location.StartLine <= lineNumber
-                            && d.ScopeEndLine >= lineNumber)
+                            && encloses lineNumber d)
                         |> not
 
                 let fieldMatches =
