@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.16
+
+- Retain paths on locationless GitHub annotations (#207, #215).
+- Start type declarations after their XML doc comments (#208, #216).
+- Classify members from syntax and scope property locals (#209, #217).
+- Parse implicit F# executable entry points (#210, #218).
+- Resolve violation context from the violation location (#219, #222).
+
 ## 0.1.15
 
 - Filter ruleset selections through a dedicated `RuleFilter` (#188, #203).
