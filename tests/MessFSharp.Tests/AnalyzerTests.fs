@@ -4106,3 +4106,95 @@ let unusedLocal () =
         )
 
         Assert.Empty(violations "CamelCaseVariableName" "controversial")
+
+    let private ruleSelection ruleName =
+        let rule = Rules.all |> List.find (fun item -> item.Name = ruleName)
+
+        { Name = rule.Name
+          RulesetName = "test"
+          Priority = rule.DefaultPriority
+          Properties = rule.DefaultProperties }
+
+    let private nestedContextSource =
+        """namespace Outer
+
+module First =
+    let a = 1
+
+module Second =
+    type Widget() =
+        member _.Run(items: int list) =
+            try
+                failwith "x"
+            with _ ->
+                ()
+
+            for item in items do
+                ignore (List.length items)
+
+            // TODO: remove
+            ()
+"""
+
+    [<Theory>]
+    [<InlineData("EmptyCatchBlock", 11)>]
+    [<InlineData("CountInLoopExpression", 15)>]
+    [<InlineData("DevelopmentCodeFragment", 17)>]
+    let ``expression level violations report the enclosing namespace module type and member``
+        (ruleName: string)
+        (line: int)
+        =
+        let source = SourceFile.ofText "in-memory.fs" Implementation nestedContextSource
+
+        match Engine.analyzeSource false [ ruleSelection ruleName ] source with
+        | Error errors -> failwithf "Expected analysis to succeed, got %A" errors
+        | Ok violations ->
+            let violation = Assert.Single(violations)
+
+            Assert.Equal(line, violation.Location.StartLine)
+
+            Assert.Equal(
+                { Namespace = Some "Outer"
+                  Module = Some "Second"
+                  Type = Some "Widget"
+                  Member = Some "Run" },
+                violation.Context
+            )
+
+    [<Fact>]
+    let ``suppression on a member suppresses expression level violations inside it`` () =
+        let source =
+            SourceFile.ofText
+                "in-memory.fs"
+                Implementation
+                """module TestExpressionSuppression
+open System.Diagnostics.CodeAnalysis
+
+type Widget() =
+    [<SuppressMessage("messfsharp", "emptycatchblock")>]
+    member _.Quiet() =
+        try
+            failwith "x"
+        with _ ->
+            ()
+
+    member _.Loud() =
+        try
+            failwith "x"
+        with _ ->
+            ()
+"""
+
+        let selections = [ ruleSelection "EmptyCatchBlock" ]
+
+        match Engine.analyzeSource false selections source, Engine.analyzeSource true selections source with
+        | Ok violations, Ok strictViolations ->
+            let violation = Assert.Single(violations)
+            Assert.Equal(15, violation.Location.StartLine)
+            Assert.Equal(Some "Loud", violation.Context.Member)
+
+            Assert.Equal<int list>(
+                [ 9; 15 ],
+                strictViolations |> List.map (fun item -> item.Location.StartLine) |> List.sort
+            )
+        | result -> failwithf "Expected analysis to succeed, got %A" result

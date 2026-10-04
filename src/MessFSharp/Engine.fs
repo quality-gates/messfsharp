@@ -24,12 +24,7 @@ module Engine =
                   Message = sprintf "Could not read source file: %s" ex.Message }
 
     let private isSuppressed (file: AnalyzedFile) (violation: Violation) =
-        file.Declarations
-        |> List.exists (fun declaration ->
-            declaration.Location.StartLine <= violation.Location.StartLine
-            && declaration.ScopeEndLine >= violation.Location.StartLine
-            && declaration.SuppressedRules
-               |> Set.exists (fun rule -> String.Equals(rule, violation.RuleName, StringComparison.OrdinalIgnoreCase)))
+        isSuppressedAt violation.RuleName violation.Location.StartLine file.Declarations
 
     let private runRules (file: AnalyzedFile) (selections: RuleSelection list) =
         selections

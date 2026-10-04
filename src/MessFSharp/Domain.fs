@@ -159,6 +159,28 @@ module Domain =
         && child.Location.StartLine >= parent.Location.StartLine
         && child.Location.StartLine <= parent.ScopeEndLine
 
+    /// True when the line falls between the declaration's first line and the end of its scope.
+    let encloses (line: int) (declaration: Declaration) =
+        declaration.Location.StartLine <= line && line <= declaration.ScopeEndLine
+
+    /// True when the line falls inside the declaration's scope range.
+    let scopeContains (line: int) (declaration: Declaration) =
+        declaration.ScopeStartLine <= line && line <= declaration.ScopeEndLine
+
+    /// Declarations that enclose the line, innermost first.
+    let enclosingDeclarations (line: int) (declarations: Declaration list) =
+        declarations
+        |> List.filter (encloses line)
+        |> List.sortByDescending (fun declaration -> declaration.Location.StartLine)
+
+    /// True when a declaration enclosing the line suppresses the rule (case-insensitive).
+    let isSuppressedAt (ruleName: string) (line: int) (declarations: Declaration list) =
+        declarations
+        |> List.exists (fun declaration ->
+            encloses line declaration
+            && declaration.SuppressedRules
+               |> Set.exists (fun rule -> String.Equals(rule, ruleName, StringComparison.OrdinalIgnoreCase)))
+
     type AnalyzedFile =
         { Source: SourceFile
           Tokens: SyntaxToken array

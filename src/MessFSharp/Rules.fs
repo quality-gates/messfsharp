@@ -51,30 +51,18 @@ module Rules =
                 None)
         |> Option.defaultValue fallback
 
-    let private context (file: AnalyzedFile) (declaration: Declaration option) =
-        let line =
-            declaration
-            |> Option.map (fun item -> item.Location.StartLine)
-            |> Option.defaultValue 1
+    let private context (file: AnalyzedFile) (location: SourceLocation) =
+        let enclosing = enclosingDeclarations location.StartLine file.Declarations
 
-        let enclosing (kind: DeclarationKind) =
-            file.Declarations
-            |> List.filter (fun item ->
-                item.Kind = kind && item.Location.StartLine <= line && item.ScopeEndLine >= line)
-            |> List.sortByDescending (fun item -> item.Location.StartLine)
-            |> List.tryHead
+        let innermost (kinds: DeclarationKind list) =
+            enclosing
+            |> List.tryFind (fun item -> List.contains item.Kind kinds)
             |> Option.map (fun item -> item.Name)
 
-        { Namespace = enclosing Namespace
-          Module = enclosing Module
-          Type = enclosing Type
-          Member =
-            declaration
-            |> Option.bind (fun item ->
-                if item.Kind = Member || item.Kind = Property || item.Kind = Constructor then
-                    Some item.Name
-                else
-                    None) }
+        { Namespace = innermost [ Namespace ]
+          Module = innermost [ Module ]
+          Type = innermost [ Type ]
+          Member = innermost [ Member; Property; Constructor ] }
 
     let private violation
         (file: AnalyzedFile)
@@ -104,7 +92,7 @@ module Rules =
           RulesetName = selection.RulesetName
           Priority = selection.Priority
           Description = description
-          Context = context file declaration
+          Context = context file location
           HelpUri = ruleUri selection.Name }
 
     let private allDeclarations (file: AnalyzedFile) (predicate: Declaration -> bool) =
@@ -213,8 +201,7 @@ module Rules =
                 | Some line -> candidate.Location.StartLine = line
                 | None -> true)
             && (candidate.Kind = Module || candidate.Kind = Namespace || candidate.Kind = Type)
-            && candidate.ScopeStartLine <= declaration.Location.StartLine
-            && candidate.ScopeEndLine >= declaration.Location.StartLine)
+            && scopeContains declaration.Location.StartLine candidate)
         |> List.sortByDescending (fun candidate -> candidate.ScopeStartLine)
         |> List.tryHead
         |> Option.map (fun owner -> owner.ScopeStartLine, owner.ScopeEndLine)
@@ -228,8 +215,7 @@ module Rules =
             |> List.filter (fun candidate ->
                 (candidate.Kind = Function || candidate.Kind = Member)
                 && candidate.Location.StartLine < declaration.Location.StartLine
-                && candidate.ScopeStartLine <= declaration.Location.StartLine
-                && candidate.ScopeEndLine >= declaration.Location.StartLine)
+                && scopeContains declaration.Location.StartLine candidate)
             |> List.sortByDescending (fun candidate -> candidate.Location.StartLine)
             |> List.tryHead
             |> Option.map (fun owner -> owner.ScopeStartLine, owner.ScopeEndLine)
@@ -1568,8 +1554,7 @@ module Rules =
                                         | Some line -> candidate.Location.StartLine = line
                                         | None -> true)
                                     && (candidate.Kind = Function || candidate.Kind = Member)
-                                    && candidate.ScopeStartLine <= declaration.Location.StartLine
-                                    && candidate.ScopeEndLine >= declaration.Location.StartLine)
+                                    && scopeContains declaration.Location.StartLine candidate)
                                 |> List.sortByDescending (fun candidate -> candidate.Location.StartLine)
                                 |> List.tryHead
                                 |> Option.exists (fun candidate ->
@@ -2290,23 +2275,12 @@ module Rules =
                 file.ImplicitFlows
                 |> List.filter (fun flow -> flow.Direction = direction && (flow.Source = TypeState) = typeState)
                 |> List.map (fun flow ->
-                    let owner =
-                        file.Declarations
-                        |> List.tryFind (fun declaration ->
-                            declaration.Name = flow.Owner
-                            && declaration.Location.StartLine <= flow.OwnerLine
-                            && flow.OwnerLine <= declaration.Location.EndLine
-                            && (declaration.Kind = Function
-                                || declaration.Kind = Member
-                                || declaration.Kind = Property
-                                || declaration.Kind = Constructor))
-
                     { Location = flow.Location
                       RuleName = selection.Name
                       RulesetName = selection.RulesetName
                       Priority = selection.Priority
                       Description = flowDescription flow
-                      Context = context file owner
+                      Context = context file flow.Location
                       HelpUri = ruleUri selection.Name }) }
 
     let implicitInput =
