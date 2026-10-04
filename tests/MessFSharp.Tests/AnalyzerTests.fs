@@ -4106,3 +4106,72 @@ let unusedLocal () =
         )
 
         Assert.Empty(violations "CamelCaseVariableName" "controversial")
+
+    let private selectionFor (ruleName: string) =
+        match Rules.byName |> Map.tryFind (ruleName.ToLowerInvariant()) with
+        | Some rule ->
+            { Name = rule.Name
+              RulesetName = "test"
+              Priority = rule.DefaultPriority
+              Properties = rule.DefaultProperties }
+        | None -> failwithf "Unknown rule '%s'." ruleName
+
+    let private engineViolations strict ruleName text =
+        let source =
+            SourceFile.ofText (Path.Combine(Path.GetTempPath(), "messfsharp-context.fs")) Implementation text
+
+        match Engine.analyzeSource strict [ selectionFor ruleName ] source with
+        | Ok violations -> violations
+        | Error errors -> failwithf "Expected valid F# source, got %A" errors
+
+    let private nestedContextSource body =
+        "namespace Outer\n\nmodule First =\n    let a = 1\n\nmodule Second =\n    type Widget() =\n        member _.Run(items: int list) =\n"
+        + body
+
+    [<Theory>]
+    [<InlineData("EmptyCatchBlock",
+                 "            try\n                failwith \"x\"\n            with _ ->\n                ()\n")>]
+    [<InlineData("CountInLoopExpression",
+                 "            for item in items do\n                printfn \"%d\" (List.length items)\n")>]
+    [<InlineData("DevelopmentCodeFragment", "            // TODO remove\n            items\n")>]
+    let ``expression-level violations report the enclosing namespace, module, type, and member``
+        (ruleName: string, body: string)
+        =
+        let violations = engineViolations false ruleName (nestedContextSource body)
+
+        Assert.NotEmpty(violations)
+
+        Assert.All(
+            violations,
+            fun violation ->
+                Assert.Equal(
+                    { Namespace = Some "Outer"
+                      Module = Some "Second"
+                      Type = Some "Widget"
+                      Member = Some "Run" },
+                    violation.Context
+                )
+        )
+
+    [<Fact>]
+    let ``expression-level violations inside a suppressed member are suppressed in memory`` () =
+        let text =
+            "module Sample\n\ntype Widget() =\n    [<System.Diagnostics.CodeAnalysis.SuppressMessage(\"messfsharp\", \"emptycatchblock\")>]\n    member _.Run() =\n        try\n            failwith \"x\"\n        with _ ->\n            ()\n\n    member _.Other() =\n        try\n            failwith \"y\"\n        with _ ->\n            ()\n"
+
+        let lines violations =
+            violations |> List.map (fun violation -> violation.Location.StartLine)
+
+        Assert.Equal<int list>([ 14 ], engineViolations false "EmptyCatchBlock" text |> lines)
+        Assert.Equal<int list>([ 8; 14 ], engineViolations true "EmptyCatchBlock" text |> lines |> List.sort)
+
+    [<Fact>]
+    let ``a primary constructor is the member only for violations at its own location`` () =
+        let text =
+            "module Sample\n\ntype W(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int) =\n    member _.Total = a + b + c + d + e + f + g + h + i + j + k\n"
+
+        let memberOf ruleName =
+            engineViolations false ruleName text
+            |> List.map (fun violation -> violation.Context.Type, violation.Context.Member)
+
+        Assert.Equal<(string option * string option) list>([ Some "W", None ], memberOf "ShortClassName")
+        Assert.Equal<(string option * string option) list>([ Some "W", Some "W" ], memberOf "ExcessiveParameterList")

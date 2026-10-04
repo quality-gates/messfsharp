@@ -159,6 +159,11 @@ module Domain =
         && child.Location.StartLine >= parent.Location.StartLine
         && child.Location.StartLine <= parent.ScopeEndLine
 
+    /// Return the declarations that enclose the line: each starts at or before the line and its scope ends at or after it.
+    let enclosingDeclarations (declarations: Declaration list) (line: int) =
+        declarations
+        |> List.filter (fun declaration -> declaration.Location.StartLine <= line && declaration.ScopeEndLine >= line)
+
     type AnalyzedFile =
         { Source: SourceFile
           Tokens: SyntaxToken array
