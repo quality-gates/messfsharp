@@ -13,6 +13,8 @@ type NamingExamples() =
 
 let useParameter (``BadParameter``: int) = ``BadParameter``
 
+let unknownEffect value = ThirdParty.process value
+
 // TODO: deliberate development marker for rule acceptance coverage.
 let developmentMarker = 1
 

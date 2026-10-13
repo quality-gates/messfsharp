@@ -62,7 +62,7 @@ module Rulesets =
              "CamelCasePropertyName"
              "CamelCaseParameterName"
              "CamelCaseVariableName" ])
-          ("explicitness", [ "ImplicitInput"; "ImplicitOutput" ])
+          ("explicitness", [ "ImplicitInput"; "ImplicitOutput"; "UnknownEffect" ])
           ("strictexplicitness", [ "ImplicitClassInput"; "ImplicitClassOutput" ]) ]
 
     let private componentMap =
@@ -79,6 +79,7 @@ module Rulesets =
               "CountInLoopExpression"
               "ImplicitInput"
               "ImplicitOutput"
+              "UnknownEffect"
               "ImplicitClassInput"
               "ImplicitClassOutput" ]
 

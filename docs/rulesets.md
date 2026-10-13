@@ -11,7 +11,7 @@ configuration, and CI annotations. Built-in names are case-insensitive.
 | `cleancode` | `BooleanArgumentFlag`, `ElseExpression`, `StaticAccess`, `IfStatementAssignment`, `DuplicatedArrayKey` |
 | `design` | `ExitExpression`, `GotoStatement`, `CountInLoopExpression`, `DevelopmentCodeFragment`, `EmptyCatchBlock`, `CouplingBetweenObjects`, `GlobalVariable`, `LackOfCohesionOfMethods` |
 | `controversial` | `CamelCaseClassName`, `CamelCaseMethodName`, `CamelCasePropertyName`, `CamelCaseParameterName`, `CamelCaseVariableName` |
-| `explicitness` | `ImplicitInput`, `ImplicitOutput` |
+| `explicitness` | `ImplicitInput`, `ImplicitOutput`, `UnknownEffect` |
 | `strictexplicitness` | `ImplicitClassInput`, `ImplicitClassOutput` |
 
 The recommended `fsharp` ruleset composes the catalog and deliberately leaves
@@ -54,6 +54,29 @@ they are usually lookup tables; writes to them are still outputs.
   `File.WriteAllText`, `Directory.CreateDirectory`, or setting
   `Environment.CurrentDirectory`.
 
+`UnknownEffect` reports a call whose effects cannot be established in the
+supported analyzed subset. It is part of the `explicitness` ruleset, so
+unresolved calls do not masquerade as calculations. Known and unknown effects
+can coexist: a function that writes to stdout and also invokes an injected
+callback reports both the ambient output and the unknown callback effect.
+
+The callable summary used by these rules records parameter-relative writes,
+ambient reads and writes, unknown calls, and returned callable owners. Summaries
+are propagated through same-file calls to a finite fixed point. Mutating a
+caller-owned argument remains an output, while mutating storage freshly allocated
+inside the caller is treated as local. `Array.copy` is modeled as a shallow copy:
+the copied array itself is fresh, but reachable elements inside it are still
+caller-owned. Conditional storage facts join their branches, so a value that may
+be a caller-owned array remains caller-owned for writes.
+
+The trusted calculation subset is deliberately narrow: exact built-in numeric
+operations, plain built-in records and containers, local functions resolved in
+the same file, known standard pure operations such as `Array.copy` and
+`List.map`, and unmodified standard-library union cases such as `Some` and
+`None`. User-defined type constructors declared in the same file are treated as
+allocation, not ambient effects. Type annotations alone do not prove that an
+arbitrary runtime value is pure.
+
 `strictexplicitness` adds the same checks for a type's own data. It is
 intended to be combined with `explicitness`. `ImplicitClassInput` reports
 members that read `let` fields, primary constructor arguments, or `this.X`.
@@ -67,13 +90,17 @@ Nested functions and lambdas belong to their enclosing module-level function
 or member. Locals, including local functions and parameters of nested lambdas,
 shadow outer names only within their own scope. Module values resolve from the
 innermost enclosing module outwards, then through `open` declarations.
-The analysis is syntactic only. It does not
-follow calls into other functions, does not see aliasing (including a type
-self identifier such as `type T() as self`), and does not treat exceptions or
-`exit` as outputs. Arguments of a lambda-bodied binding
-(`let f = fun xs -> ...`) are treated as locals. Module-level values that are
-not functions, such as `let job = async { ... }`, have no owner and are not
-checked.
+The analysis is still intentionally bounded. It does not prove arbitrary-runtime
+purity, inspect dynamic dispatch, model generators or lazy iteration, execute
+deferred callbacks at creation time, model async scheduling, or infer effects
+for opaque external calls. Callback creation is separate from invocation:
+returning `fun () -> callback ()` attributes the callback invocation to the
+returned lambda, while immediately calling `callback ()` attributes the unknown
+effect to the current owner. If a receiver or callback effect cannot be
+established under this policy, the analyzer keeps uncertainty rather than
+certifying the call as pure. Exceptions and `exit` are not treated as outputs.
+Module-level values that are not functions, such as `let job = async { ... }`,
+have no owner and are not checked.
 
 The exploratory testing reports ([2026-09-23](exploratory-testing/2026-09-23-explicitness.md),
 [2026-09-26](exploratory-testing/2026-09-26-messfsharp.md))

@@ -2,7 +2,7 @@ module IdiomaticTwo
 
 open System
 
-let compose first second value = first (second value)
+let increment value = value + 1
 
 let choose condition left right = if condition then left else right
 

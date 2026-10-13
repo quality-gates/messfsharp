@@ -51,7 +51,7 @@ module CatalogTests =
             "CamelCasePropertyName"
             "CamelCaseParameterName"
             "CamelCaseVariableName" ]
-          "explicitness", [ "ImplicitInput"; "ImplicitOutput" ]
+          "explicitness", [ "ImplicitInput"; "ImplicitOutput"; "UnknownEffect" ]
           "strictexplicitness", [ "ImplicitClassInput"; "ImplicitClassOutput" ] ]
 
     let private loaded name =
@@ -83,6 +83,7 @@ module CatalogTests =
                   "CountInLoopExpression"
                   "ImplicitInput"
                   "ImplicitOutput"
+                  "UnknownEffect"
                   "ImplicitClassInput"
                   "ImplicitClassOutput" ]
 
