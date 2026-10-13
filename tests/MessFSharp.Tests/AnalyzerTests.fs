@@ -4062,6 +4062,27 @@ type Leaf() =
         Assert.Equal<(string * int * string) list>(expected, actual)
 
     [<Fact>]
+    let ``explicitness transfers lazy output through Force and Value`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "normand-lazy-transfer.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.Context.Member, violation.RuleName, violation.Location.StartLine)
+            |> List.sort
+
+        let expected =
+            [ Some "<lazy>", "ImplicitOutput", 3
+              Some "forceBinding", "ImplicitOutput", 7
+              Some "forceReturn", "ImplicitOutput", 9
+              Some "forceValue", "ImplicitOutput", 13 ]
+            |> List.sort
+
+        Assert.Equal<(string option * string * int) list>(expected, actual)
+
+    [<Fact>]
     let ``explicitness tracks alias storage and deferred execution owners`` () =
         let result =
             Engine.run "0.1.0" (options [ fixture "normand-ownership.fs" ] [ "explicitness" ] Json)

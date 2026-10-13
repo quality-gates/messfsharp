@@ -93,6 +93,7 @@ module Flows =
         | Call of string list * CallArgument list
         | CallValue of ValueExpr * CallArgument list
         | Force of ValueExpr
+        | ForceProperty of ValueExpr
         | PatternUse of string
         | UnsupportedOperation of string
         | Ambient of FlowDirection * string * string list
@@ -122,6 +123,7 @@ module Flows =
         | OpenDispatch of (int * int)
         | PureConstructor of path: string list * name: string
         | ModuleData of path: string list * name: string * tracked: bool * container: bool * pos: (int * int)
+        | ReferenceValue of path: string list * name: string
         | Open of path: string list * target: string list * pos: (int * int)
         | Candidate of Owner * Access * range
 
@@ -186,6 +188,7 @@ module Flows =
           Arity: Map<OwnerKey, int>
           ReturnValues: Map<OwnerKey, ValueExpr * range>
           PureConstructors: Set<string list * string>
+          ReferenceValues: Set<string list * string>
           Values: Map<OwnerKey * string, ValueReference> -> Owner -> ValueExpr -> range -> ValueSummary
           OpaqueRead: Owner -> string list -> range -> bool
           Owners: Map<OwnerKey, Owner> }
@@ -861,13 +864,17 @@ module Flows =
         | SynExpr.Typed(expr = result) -> resultRange result
         | _ -> expression.Range
 
-    let private forcingCall identifiers arguments =
-        match identifiers, arguments with
-        | [ "Seq"; ("toList" | "toArray" | "sum" | "length" | "iter") ], arguments
-        | [ "Async"; "RunSynchronously" ], arguments when not (List.isEmpty arguments) ->
-            Some(valueExpr (List.last arguments))
-        | [ root; "Force" ], _ -> Some(ValuePath [ root ])
-        | _ -> None
+    let private forcingCall func identifiers arguments =
+        match func with
+        | SynExpr.DotGet(expr = source; longDotId = SynLongIdent(id = [ operation ])) when operation.idText = "Force" ->
+            Some(valueExpr source)
+        | _ ->
+            match identifiers, arguments with
+            | [ "Seq"; ("toList" | "toArray" | "sum" | "length" | "iter") ], arguments
+            | [ "Async"; "RunSynchronously" ], arguments when not (List.isEmpty arguments) ->
+                Some(valueExpr (List.last arguments))
+            | [ root; "Force" ], _ -> Some(ValuePath [ root ])
+            | _ -> None
 
     let private isNestedApplicationFunction (ancestors: SyntaxNode list) expressionRange =
         ancestors
@@ -984,7 +991,14 @@ module Flows =
             | SynExpr.DotGet(expr = source; longDotId = SynLongIdent(id = [ operation ])) when
                 operation.idText = "Value"
                 ->
-                [ Candidate(current, Force(valueExpr source), expression.Range) ]
+                [ Candidate(current, ForceProperty(valueExpr source), expression.Range) ]
+            | SynExpr.LongIdent(longDotId = SynLongIdent(id = identifiers)) when
+                identifiers.Length > 1 && (List.last identifiers).idText = "Value"
+                ->
+                let path = names identifiers
+
+                [ Candidate(current, Read path, expression.Range)
+                  Candidate(current, ForceProperty(ValuePath(List.take (path.Length - 1) path)), expression.Range) ]
             | SynExpr.DotGet(expr = source; longDotId = SynLongIdent(id = [ operation ])) when
                 mutatingMethods.Contains operation.idText
                 ->
@@ -1010,7 +1024,7 @@ module Flows =
                     | [] ->
                         [ Candidate(current, CallValue(valueExpr func, arguments |> List.map callArgument), func.Range) ]
                     | identifiers ->
-                        match forcingCall identifiers arguments with
+                        match forcingCall func identifiers arguments with
                         | Some source -> [ Candidate(current, Force source, func.Range) ]
                         | None ->
                             [ Candidate(current, Call(identifiers, arguments |> List.map callArgument), func.Range) ]
@@ -1192,14 +1206,16 @@ module Flows =
 
         let moduleData () =
             patternNames container pattern
-            |> List.map (fun (name, isContainer) ->
-                ModuleData(
-                    modulePathOf ancestors,
-                    name,
-                    tracked || (isContainer && not (createsArray body)),
-                    isContainer,
-                    key pattern.Range
-                ))
+            |> List.collect (fun (name, isContainer) ->
+                [ ModuleData(
+                      modulePathOf ancestors,
+                      name,
+                      tracked || (isContainer && not (createsArray body)),
+                      isContainer,
+                      key pattern.Range
+                  )
+                  if createsRef body then
+                      ReferenceValue(modulePathOf ancestors, name) ])
 
         match parent, typeKeyOf ancestors with
         | SyntaxNode.SynModule(SynModuleDecl.Let _), _ -> moduleData ()
@@ -1690,6 +1706,13 @@ module Flows =
             facts
             |> List.choose (function
                 | PureConstructor(path, name) -> Some(path, name)
+                | _ -> None)
+            |> Set.ofList
+
+        let referenceValues =
+            facts
+            |> List.choose (function
+                | ReferenceValue(path, name) -> Some(path, name)
                 | _ -> None)
             |> Set.ofList
 
@@ -2677,6 +2700,7 @@ module Flows =
           Arity = arity
           ReturnValues = returnValues
           PureConstructors = pureConstructors
+          ReferenceValues = referenceValues
           Values = valueOf Set.empty
           OpaqueRead = opaqueRead
           Owners = owners }
@@ -2781,8 +2805,20 @@ module Flows =
                 []
             else
                 [ UnknownEffect(UnknownCall "callable expression") ]
-        | Force value ->
-            if (resolvers.Values Map.empty current value accessRange).Complete then
+        | Force value
+        | ForceProperty value ->
+            let knownReference =
+                match access, value with
+                | ForceProperty _, ValuePath [ name ] when Set.contains (current.Path, name) resolvers.ReferenceValues ->
+                    match resolve current [ name ] with
+                    | Some(Data _) -> true
+                    | _ -> false
+                | _ -> false
+
+            if
+                knownReference
+                || (resolvers.Values Map.empty current value accessRange).Complete
+            then
                 []
             else
                 [ UnknownEffect(UnknownCall "deferred value") ]
@@ -3020,7 +3056,7 @@ module Flows =
                     let value = resolvers.Values Map.empty current value accessRange
                     let targets, complete = executionTargets 0 current value arguments accessRange
                     [ current, targets, not complete, accessRange ]
-                | Candidate(current, Force value, accessRange) ->
+                | Candidate(current, (Force value | ForceProperty value), accessRange) ->
                     resolvers.Values Map.empty current value accessRange
                     |> _.Deferred
                     |> Set.toList
