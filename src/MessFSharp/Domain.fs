@@ -183,7 +183,7 @@ module Domain =
           LoopIterationRegions: SourceLocation list
           LexicalScopes: LexicalScope list
           SyntacticReferences: SyntacticReference list
-          ImplicitFlows: ImplicitFlow list }
+          ImplicitFlows: Lazy<ImplicitFlow list> }
 
     type SymbolContext =
         { Namespace: string option

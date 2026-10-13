@@ -2295,7 +2295,7 @@ module Rules =
           Description = description
           Check =
             fun file selection ->
-                file.ImplicitFlows
+                file.ImplicitFlows.Value
                 |> List.filter (fun flow -> flow.Direction = direction && (flow.Source = TypeState) = typeState)
                 |> List.map (fun flow ->
                     let flowContext =

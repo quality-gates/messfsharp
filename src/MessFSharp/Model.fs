@@ -2193,4 +2193,4 @@ module Model =
           LoopIterationRegions = syntaxFacts.LoopIterationRegions
           LexicalScopes = syntaxFacts.LexicalScopes
           SyntacticReferences = syntaxFacts.References
-          ImplicitFlows = Flows.collect source.FullPath parsedInput }
+          ImplicitFlows = lazy (Flows.collect source.FullPath parsedInput) }

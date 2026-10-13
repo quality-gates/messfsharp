@@ -3908,7 +3908,8 @@ type Leaf() =
         let classOutput = "ImplicitClassOutput"
 
         let expected =
-            [ input, 13, "'addToTotal' reads mutable shared value 'total' instead of taking it as an argument."
+            [ input, 9, "'<module>' reads ambient input 'DateTime.Now' instead of taking it as an argument."
+              input, 12, "'addToTotal' reads mutable shared value 'total' instead of taking it as an argument."
               output, 12, "'addToTotal' writes shared value 'total' instead of returning the new value."
               output, 13, "'addToTotal' performs ambient output 'printfn' instead of returning data."
               input, 17, "'stamp' reads ambient input 'DateTime.Now' instead of taking it as an argument."
@@ -3916,6 +3917,11 @@ type Leaf() =
               output, 19, "'bump' writes shared value 'counter' instead of returning the new value."
               output, 21, "'remember' writes shared value 'cache' instead of returning the new value."
               output, 23, "'append' mutates argument 'items' instead of returning a new value."
+              "UnknownEffect",
+              30,
+              "'sum' has unknown effect from 'deferred value' because the target is outside the analyzed subset."
+              output, 38, "'Increment' mutates argument 'count' instead of returning a new value."
+              output, 40, "'Rename' mutates argument 'Label' instead of returning a new value."
               classInput, 38, "'Increment' reads type data 'count' instead of taking it as an argument."
               classOutput, 38, "'Increment' writes type data 'count' instead of returning the new value."
               classInput, 39, "'Current' reads type data 'count' instead of taking it as an argument."
@@ -3955,17 +3961,27 @@ type Leaf() =
         let classOutput = "ImplicitClassOutput"
 
         let expected =
-            [ input, 11, "'readName' reads ambient input 'stdin' instead of taking it as an argument."
+            [ "UnknownEffect",
+              8,
+              "'<module>' has unknown effect from 'makeCache' because the target is outside the analyzed subset."
+              "UnknownEffect",
+              36,
+              "'check' has unknown effect from 'config.File.Exists' because the target is outside the analyzed subset."
+              output, 47, "'Label' mutates argument 'Items' instead of returning a new value."
+              output, 53, "'Put' mutates argument 'Items' instead of returning a new value."
+              input, 11, "'readName' reads ambient input 'stdin' instead of taking it as an argument."
               output, 13, "'writeName' performs ambient output 'stdout' instead of returning data."
               input, 24, "'snapshot' reads mutable shared value 'total' instead of taking it as an argument."
               output, 28, "'publish' writes shared value 'total' instead of returning the new value."
               input, 30, "'lookup' reads mutable shared value 'cache' instead of taking it as an argument."
               input, 32, "'tick' reads mutable shared value 'counter' instead of taking it as an argument."
               output, 32, "'tick' writes shared value 'counter' instead of returning the new value."
-              output, 38, "'moveTo' performs ambient output 'Environment.CurrentDirectory' instead of returning data."
+              output,
+              38,
+              "'moveTo' writes shared value 'Environment.CurrentDirectory' instead of returning the new value."
               classInput, 46, "'Label' reads type data 'Items' instead of taking it as an argument."
               classOutput, 47, "'Label' writes type data 'Items' instead of returning the new value."
-              input, 51, "'Next' reads mutable shared value 'count' instead of taking it as an argument."
+              input, 50, "'Next' reads mutable shared value 'count' instead of taking it as an argument."
               output, 50, "'Next' writes shared value 'count' instead of returning the new value."
               classOutput, 53, "'Put' writes type data 'Items' instead of returning the new value."
               classInput, 58, "'Both' reads type data 'Size' instead of taking it as an argument."
@@ -4069,6 +4085,7 @@ type Leaf() =
               "UnknownEffect",
               24,
               "'<lambda>' has unknown effect from 'callback' because the target is outside the analyzed subset."
+              "ImplicitInput", 26, "'lookup' reads mutable shared value 'table' instead of taking it as an argument."
               "ImplicitOutput", 27, "'effectLeaf' performs ambient output 'printfn' instead of returning data."
               "ImplicitOutput", 28, "'effectMiddle' performs ambient output 'printfn' instead of returning data."
               "ImplicitOutput", 29, "'effectTop' performs ambient output 'printfn' instead of returning data."
@@ -4298,3 +4315,42 @@ let unusedLocal () =
 
         Assert.Equal<(string option * string option) list>([ Some "W", None ], memberOf "ShortClassName")
         Assert.Equal<(string option * string option) list>([ Some "W", Some "W" ], memberOf "ExcessiveParameterList")
+
+    [<Fact>]
+    let ``explicitness follows heap cells through aliases helpers and callbacks`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "normand-heap.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let expected =
+            [ "insertThroughAlias", [ "ImplicitOutput" ]
+              "insertThroughHelper", [ "ImplicitOutput" ]
+              "uncalledSetter", []
+              "replaceWithPrivate", []
+              "privateListInsert", [ "ImplicitOutput" ]
+              "privateListPure", []
+              "separateFactories", []
+              "returnedHolder", [ "ImplicitOutput" ]
+              "oldMemberAliasPrivate", []
+              "oldMemberAliasCaller", [ "ImplicitOutput" ]
+              "fieldReplacementIndependent", [ "ImplicitOutput" ]
+              "conditionalReplacement", [ "ImplicitOutput" ]
+              "helperReplacement", []
+              "recordCopyCaller", [ "ImplicitOutput" ]
+              "eagerLambdaInsert", [ "ImplicitOutput" ]
+              "directLambdaInsert", [ "ImplicitOutput" ]
+              "callbackHelperInsert", [ "ImplicitOutput" ]
+              "capturedAliasWrite", [ "ImplicitInput" ]
+              "recordCopyReplaced", []
+              "conditionalCallbackReplacement", [ "ImplicitOutput" ]
+              "capturedAliasReplaced", [] ]
+
+        for owner, rules in expected do
+            let actual =
+                result.Report.Violations
+                |> List.filter (fun violation -> violation.Context.Member = Some owner)
+                |> List.map _.RuleName
+                |> List.sort
+
+            Assert.True((rules = actual), $"{owner}: expected {rules}, got {actual}")

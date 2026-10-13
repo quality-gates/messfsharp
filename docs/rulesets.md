@@ -39,14 +39,15 @@ output is its return value; anything else is implicit.
   `Environment.GetEnvironmentVariable`, `Console.ReadLine`, `stdin`, and
   `File`/`Directory` reads.
 
-Immutable module values are not inputs, because they cannot change between
-calls. Module-level arrays are also not treated as inputs when read, because
-they are usually lookup tables; writes to them are still outputs.
+Immutable module bindings are not automatically inputs. Reading a mutable
+object through one is an input, including a module-level array used as a
+lookup table. Reading fixed private storage allocated within the caller is
+local.
 
 `ImplicitOutput` reports a function or member that:
 
-- assigns (`<-`, `:=`, `incr`, `decr`, indexer set, `Array.set`) to anything
-  that is not one of its own locals;
+- assigns (`<-`, `:=`, `incr`, `decr`, indexer set, `Array.set`) to storage
+  visible outside the current call;
 - mutates an argument, either by assignment or by calling `Add`, `Remove`,
   `Clear`, `Append`, and similar on a parameter annotated as a mutable
   collection; or
@@ -60,14 +61,16 @@ unresolved calls do not masquerade as calculations. Known and unknown effects
 can coexist: a function that writes to stdout and also invokes an injected
 callback reports both the ambient output and the unknown callback effect.
 
-The callable summary used by these rules records parameter-relative writes,
-ambient reads and writes, unknown calls, and returned callable owners. Summaries
-are propagated through same-file calls to a finite fixed point. Mutating a
-caller-owned argument remains an output, while mutating storage freshly allocated
-inside the caller is treated as local. `Array.copy` is modeled as a shallow copy:
-the copied array itself is fresh, but reachable elements inside it are still
-caller-owned. Conditional storage facts join their branches, so a value that may
-be a caller-owned array remains caller-owned for writes.
+The analysis follows allocation identities through local aliases, record fields,
+array elements, same-file helpers, and known eager callbacks. Replacing a field
+with fresh storage removes its old contents for subsequent reads; other fields
+retain theirs. Mutating a caller-owned argument remains an output, while
+mutating storage freshly allocated inside the caller is local. `Array.copy` is
+a shallow copy: the copied array itself is fresh, but reachable elements inside
+it are still caller-owned. Conditional stores join their branches, so a value
+that may be caller-owned remains caller-owned for writes. Callable summaries
+also carry ambient reads and writes, unknown calls, and returned callable owners
+through same-file calls to a finite fixed point.
 
 The trusted calculation subset is deliberately narrow: exact built-in numeric
 operations, plain built-in records and containers, local functions resolved in
@@ -86,21 +89,19 @@ passing another method of the same type through the self identifier is not
 reported.
 
 Each owner reports a given name once per direction, at its first occurrence.
-Nested functions and lambdas belong to their enclosing module-level function
-or member. Locals, including local functions and parameters of nested lambdas,
+Nested functions, lambdas, and `seq`, `async`, and `lazy` bodies have their own owners.
+Creating one of these deferred values is quiet; its effects belong to the body
+when invoked, enumerated, or forced. A `task` body runs at creation. Executable
+module initialization belongs to `<module>`. Locals and nested parameters
 shadow outer names only within their own scope. Module values resolve from the
 innermost enclosing module outwards, then through `open` declarations.
-The analysis is still intentionally bounded. It does not prove arbitrary-runtime
-purity, inspect dynamic dispatch, model generators or lazy iteration, execute
-deferred callbacks at creation time, model async scheduling, or infer effects
-for opaque external calls. Callback creation is separate from invocation:
-returning `fun () -> callback ()` attributes the callback invocation to the
-returned lambda, while immediately calling `callback ()` attributes the unknown
-effect to the current owner. If a receiver or callback effect cannot be
-established under this policy, the analyzer keeps uncertainty rather than
-certifying the call as pure. Exceptions and `exit` are not treated as outputs.
-Module-level values that are not functions, such as `let job = async { ... }`,
-have no owner and are not checked.
+
+The analysis is intentionally bounded. It does not prove arbitrary runtime
+purity or dynamic dispatch, and it reports uncertainty for opaque external
+calls. Returning `fun () -> callback ()` attributes the callback invocation to
+the lambda, while immediately calling `callback ()` attributes it to the
+current owner. An unresolved receiver or callback does not certify a call as
+pure. Exceptions and `exit` are not treated as outputs.
 
 The exploratory testing reports ([2026-09-23](exploratory-testing/2026-09-23-explicitness.md),
 [2026-09-26](exploratory-testing/2026-09-26-messfsharp.md))
