@@ -41,6 +41,7 @@
   <rule name="CamelCaseVariableName" />
   <rule name="ImplicitInput" />
   <rule name="ImplicitOutput" />
+  <rule name="UnknownEffect" />
   <rule name="ImplicitClassInput" />
   <rule name="ImplicitClassOutput" />
 </ruleset>

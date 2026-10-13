@@ -2274,9 +2274,13 @@ module Rules =
             | AmbientEffect, InputFlow -> "reads ambient input"
             | AmbientEffect, OutputFlow -> "performs ambient output"
             | ArgumentMutation, _ -> "mutates argument"
+            | UnknownEffectSource, UnknownFlow -> "has unknown effect from"
+            | UnknownEffectSource, _ -> "has unknown effect from"
+            | _, UnknownFlow -> "has unknown effect from"
 
         let remedy =
             match flow.Direction, flow.Source with
+            | UnknownFlow, _ -> "because the target is outside the analyzed subset"
             | InputFlow, _ -> "instead of taking it as an argument"
             | OutputFlow, AmbientEffect -> "instead of returning data"
             | OutputFlow, ArgumentMutation -> "instead of returning a new value"
@@ -2291,15 +2295,19 @@ module Rules =
           Description = description
           Check =
             fun file selection ->
-                file.ImplicitFlows
+                file.ImplicitFlows.Value
                 |> List.filter (fun flow -> flow.Direction = direction && (flow.Source = TypeState) = typeState)
                 |> List.map (fun flow ->
+                    let flowContext =
+                        { context file flow.Location with
+                            Member = Some flow.Owner }
+
                     { Location = flow.Location
                       RuleName = selection.Name
                       RulesetName = selection.RulesetName
                       Priority = selection.Priority
                       Description = flowDescription flow
-                      Context = context file flow.Location
+                      Context = flowContext
                       HelpUri = ruleUri selection.Name }) }
 
     let implicitInput =
@@ -2315,6 +2323,13 @@ module Rules =
             OutputFlow
             false
             "Reports functions and members that write shared state, mutate arguments, or perform I/O instead of returning values."
+
+    let unknownEffect =
+        implicitFlowRule
+            "UnknownEffect"
+            UnknownFlow
+            false
+            "Reports calls whose effects cannot be established within the supported explicitness subset."
 
     let implicitClassInput =
         implicitFlowRule
@@ -2372,6 +2387,7 @@ module Rules =
           camelCaseVariableName
           implicitInput
           implicitOutput
+          unknownEffect
           implicitClassInput
           implicitClassOutput ]
 

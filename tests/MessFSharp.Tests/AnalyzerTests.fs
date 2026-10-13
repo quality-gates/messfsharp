@@ -3908,7 +3908,8 @@ type Leaf() =
         let classOutput = "ImplicitClassOutput"
 
         let expected =
-            [ input, 12, "'addToTotal' reads mutable shared value 'total' instead of taking it as an argument."
+            [ input, 9, "'<module>' reads ambient input 'DateTime.Now' instead of taking it as an argument."
+              input, 12, "'addToTotal' reads mutable shared value 'total' instead of taking it as an argument."
               output, 12, "'addToTotal' writes shared value 'total' instead of returning the new value."
               output, 13, "'addToTotal' performs ambient output 'printfn' instead of returning data."
               input, 17, "'stamp' reads ambient input 'DateTime.Now' instead of taking it as an argument."
@@ -3916,6 +3917,11 @@ type Leaf() =
               output, 19, "'bump' writes shared value 'counter' instead of returning the new value."
               output, 21, "'remember' writes shared value 'cache' instead of returning the new value."
               output, 23, "'append' mutates argument 'items' instead of returning a new value."
+              "UnknownEffect",
+              30,
+              "'sum' has unknown effect from 'deferred value' because the target is outside the analyzed subset."
+              output, 38, "'Increment' mutates argument 'count' instead of returning a new value."
+              output, 40, "'Rename' mutates argument 'Label' instead of returning a new value."
               classInput, 38, "'Increment' reads type data 'count' instead of taking it as an argument."
               classOutput, 38, "'Increment' writes type data 'count' instead of returning the new value."
               classInput, 39, "'Current' reads type data 'count' instead of taking it as an argument."
@@ -3955,14 +3961,24 @@ type Leaf() =
         let classOutput = "ImplicitClassOutput"
 
         let expected =
-            [ input, 11, "'readName' reads ambient input 'stdin' instead of taking it as an argument."
+            [ "UnknownEffect",
+              8,
+              "'<module>' has unknown effect from 'makeCache' because the target is outside the analyzed subset."
+              "UnknownEffect",
+              36,
+              "'check' has unknown effect from 'config.File.Exists' because the target is outside the analyzed subset."
+              output, 47, "'Label' mutates argument 'Items' instead of returning a new value."
+              output, 53, "'Put' mutates argument 'Items' instead of returning a new value."
+              input, 11, "'readName' reads ambient input 'stdin' instead of taking it as an argument."
               output, 13, "'writeName' performs ambient output 'stdout' instead of returning data."
               input, 24, "'snapshot' reads mutable shared value 'total' instead of taking it as an argument."
               output, 28, "'publish' writes shared value 'total' instead of returning the new value."
               input, 30, "'lookup' reads mutable shared value 'cache' instead of taking it as an argument."
               input, 32, "'tick' reads mutable shared value 'counter' instead of taking it as an argument."
               output, 32, "'tick' writes shared value 'counter' instead of returning the new value."
-              output, 38, "'moveTo' performs ambient output 'Environment.CurrentDirectory' instead of returning data."
+              output,
+              38,
+              "'moveTo' writes shared value 'Environment.CurrentDirectory' instead of returning the new value."
               classInput, 46, "'Label' reads type data 'Items' instead of taking it as an argument."
               classOutput, 47, "'Label' writes type data 'Items' instead of returning the new value."
               input, 50, "'Next' reads mutable shared value 'count' instead of taking it as an argument."
@@ -4031,7 +4047,220 @@ type Leaf() =
             Engine.run "0.1.0" (options [ fixture "issue-155-shadowed-ambient.fs" ] [ "explicitness" ] Json)
 
         Assert.Empty(result.Report.Errors)
-        Assert.Empty(result.Report.Violations)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine, violation.Description)
+            |> List.sort
+
+        let expected =
+            [ "UnknownEffect",
+              3,
+              "'log' has unknown effect from 'printfn' because the target is outside the analyzed subset." ]
+            |> List.sort
+
+        Assert.Equal<(string * int * string) list>(expected, actual)
+
+    [<Fact>]
+    let ``explicitness transfers lazy output through Force and Value`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "normand-lazy-transfer.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.Context.Member, violation.RuleName, violation.Location.StartLine)
+            |> List.sort
+
+        let expected =
+            [ Some "<lazy>", "ImplicitOutput", 5
+              Some "forceBinding", "ImplicitOutput", 10
+              Some "forceReturn", "ImplicitOutput", 12
+              Some "forceValue", "ImplicitOutput", 16 ]
+            |> List.sort
+
+        Assert.Equal<(string option * string * int) list>(expected, actual)
+
+    [<Fact>]
+    let ``explicitness distinguishes lazy Value from reference and record Value`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "normand-value-boundary.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.Context.Member, violation.RuleName, violation.Location.StartLine)
+            |> List.sort
+
+        let expected =
+            [ Some "<lazy>", "ImplicitOutput", 8
+              Some "<lazy>", "ImplicitOutput", 22
+              Some "<lazy>", "ImplicitOutput", 29
+              Some "moduleRefRead", "ImplicitInput", 17
+              Some "knownLazy", "ImplicitOutput", 25
+              Some "returnedLazy", "ImplicitOutput", 28
+              Some "moduleLazyRead", "ImplicitOutput", 33
+              Some "unknownLazy", "UnknownEffect", 34
+              Some "unknownLazyForce", "UnknownEffect", 35
+              Some "unknownFromCallback", "UnknownEffect", 38
+              Some "unknownFromCallback", "UnknownEffect", 39
+              Some "<lazy>", "ImplicitOutput", 44
+              Some "qualifiedLazyRead", "ImplicitOutput", 47
+              Some "<lazy>", "ImplicitOutput", 51
+              Some "forceFactory", "ImplicitOutput", 55
+              Some "forceQualifiedAlias", "ImplicitOutput", 61
+              Some "unknownLazyAlias", "UnknownEffect", 73
+              Some "moduleBoxRead", "ImplicitInput", 76
+              Some "moduleBoxWrite", "ImplicitOutput", 77
+              Some "<module>", "ImplicitInput", 80
+              Some "moduleRefAliasRead", "ImplicitInput", 81
+              Some "moduleBoxAliasRead", "ImplicitInput", 82
+              Some "derefReturnedRef", "ImplicitInput", 85
+              Some "readImmutableBoxAlias", "ImplicitInput", 90
+              Some "writeImmutableBox", "ImplicitOutput", 91
+              Some "readImmutableBox", "ImplicitInput", 92 ]
+            |> List.sort
+
+        Assert.Equal<(string option * string * int) list>(expected, actual)
+
+    [<Fact>]
+    let ``explicitness reads private storage only after an observed write`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "normand-private-storage.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.Context.Member, violation.RuleName, violation.Location.StartLine)
+            |> List.sort
+
+        let expected =
+            [ Some "writtenRefRead", "ImplicitInput", 13
+              Some "writtenRefAliasRead", "ImplicitInput", 14
+              Some "writtenRefWrite", "ImplicitOutput", 15
+              Some "writtenCounterRead", "ImplicitInput", 19
+              Some "writtenCounterAliasRead", "ImplicitInput", 20
+              Some "writtenCounterWrite", "ImplicitOutput", 21
+              Some "sharedCounterRead", "ImplicitInput", 26
+              Some "sharedCounterAliasRead", "ImplicitInput", 27
+              Some "sharedCounterWrite", "ImplicitOutput", 28 ]
+            |> List.sort
+
+        Assert.Equal<(string option * string * int) list>(expected, actual)
+
+    [<Fact>]
+    let ``explicitness tracks alias storage and deferred execution owners`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "normand-ownership.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine, violation.Description)
+            |> List.sort
+
+        let expected =
+            [ "ImplicitOutput", 4, "'change' writes shared value 'items' instead of returning the new value."
+              "ImplicitInput", 5, "'read' reads mutable shared value 'items' instead of taking it as an argument."
+              "ImplicitOutput", 9, "'aliasChange' mutates argument 'values' instead of returning a new value."
+              "ImplicitOutput", 13, "'rebindChange' mutates argument 'values' instead of returning a new value."
+              "ImplicitOutput", 22, "'<lambda>' performs ambient output 'printfn' instead of returning data."
+              "UnknownEffect",
+              23,
+              "'invokeNow' has unknown effect from 'callback' because the target is outside the analyzed subset."
+              "UnknownEffect",
+              24,
+              "'<lambda>' has unknown effect from 'callback' because the target is outside the analyzed subset."
+              "ImplicitInput", 26, "'lookup' reads mutable shared value 'table' instead of taking it as an argument."
+              "ImplicitOutput", 27, "'effectLeaf' performs ambient output 'printfn' instead of returning data."
+              "ImplicitOutput", 28, "'effectMiddle' performs ambient output 'printfn' instead of returning data."
+              "ImplicitOutput", 29, "'effectTop' performs ambient output 'printfn' instead of returning data."
+              "UnknownEffect",
+              30,
+              "'unknownLeaf' has unknown effect from 'callback' because the target is outside the analyzed subset."
+              "UnknownEffect",
+              31,
+              "'unknownTop' has unknown effect from 'callback' because the target is outside the analyzed subset."
+              "ImplicitOutput", 34, "'actionAndUnknown' performs ambient output 'printfn' instead of returning data."
+              "UnknownEffect",
+              35,
+              "'actionAndUnknown' has unknown effect from 'callback' because the target is outside the analyzed subset."
+              "ImplicitOutput", 39, "'shallowShared' mutates argument 'cells' instead of returning a new value."
+              "ImplicitOutput", 43, "'conditionalCopy' mutates argument 'values' instead of returning a new value."
+              "UnknownEffect",
+              53,
+              "'shadowedParameter' has unknown effect from 'helper' because the target is outside the analyzed subset." ]
+            |> List.sort
+
+        Assert.Equal<(string * int * string) list>(expected, actual)
+
+        Assert.DoesNotContain(actual, fun (_, _, description) -> description.Contains("'copyChange'"))
+        Assert.DoesNotContain(actual, fun (_, _, description) -> description.Contains("'capturedPure'"))
+        Assert.DoesNotContain(actual, fun (_, _, description) -> description.Contains("'shadowedCallable'"))
+        Assert.DoesNotContain(actual, fun (_, _, description) -> description.Contains("'factory'"))
+
+    [<Fact>]
+    let ``explicitness instantiates callback argument mutation through helper calls`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "normand-callback-transfer.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine, violation.Description)
+            |> List.sort
+
+        let expected =
+            [ "UnknownEffect",
+              3,
+              "'apply' has unknown effect from 'mutate' because the target is outside the analyzed subset."
+              "ImplicitOutput", 5, "'mutator' mutates argument 'payload' instead of returning a new value."
+              "ImplicitOutput", 12, "'callerOwned' mutates argument 'items' instead of returning a new value."
+              "UnknownEffect",
+              14,
+              "'applyShadow' has unknown effect from 'mutate' because the target is outside the analyzed subset."
+              "ImplicitOutput", 16, "'shadowMutator' mutates argument 'payload' instead of returning a new value."
+              "UnknownEffect",
+              23,
+              "'forward' has unknown effect from 'callback' because the target is outside the analyzed subset."
+              "ImplicitOutput", 25, "'forwardCaller' mutates argument 'items' instead of returning a new value." ]
+            |> List.sort
+
+        Assert.Equal<(string * int * string) list>(expected, actual)
+
+        Assert.DoesNotContain(actual, fun (_, _, description) -> description.Contains("'privateWrapper'"))
+        Assert.DoesNotContain(actual, fun (_, _, description) -> description.Contains("'shadowPrivate'"))
+
+    [<Fact>]
+    let ``explicitness ignores effects in literal false branches`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "normand-reachability.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine, violation.Description)
+            |> List.sort
+
+        let expected =
+            [ "ImplicitOutput", 11, "'liveAction' performs ambient output 'printfn' instead of returning data."
+              "UnknownEffect",
+              23,
+              "'liveUnknown' has unknown effect from 'callback' because the target is outside the analyzed subset."
+              "ImplicitOutput", 34, "'literalTrueShared' mutates argument 'values' instead of returning a new value." ]
+            |> List.sort
+
+        Assert.Equal<(string * int * string) list>(expected, actual)
+
+        Assert.DoesNotContain(actual, fun (_, _, description) -> description.Contains("'deadAction'"))
+        Assert.DoesNotContain(actual, fun (_, _, description) -> description.Contains("'deadUnknown'"))
+        Assert.DoesNotContain(actual, fun (_, _, description) -> description.Contains("'literalFalseCopy'"))
 
     [<Fact>]
     let ``element writes to a module-level array are implicit outputs`` () =
@@ -4049,7 +4278,8 @@ type Leaf() =
             [ "ImplicitOutput", 5, "'setIndexer' writes shared value 'items' instead of returning the new value."
               "ImplicitOutput", 7, "'setDotIndexer' writes shared value 'items' instead of returning the new value."
               "ImplicitOutput", 9, "'setWithArraySet' writes shared value 'items' instead of returning the new value."
-              "ImplicitOutput", 11, "'setArgument' mutates argument 'values' instead of returning a new value." ]
+              "ImplicitOutput", 11, "'setArgument' mutates argument 'values' instead of returning a new value."
+              "ImplicitInput", 13, "'readOnly' reads mutable shared value 'items' instead of taking it as an argument." ]
             |> List.sort
 
         Assert.Equal<(string * int * string) list>(expected, actual)
@@ -4175,3 +4405,42 @@ let unusedLocal () =
 
         Assert.Equal<(string option * string option) list>([ Some "W", None ], memberOf "ShortClassName")
         Assert.Equal<(string option * string option) list>([ Some "W", Some "W" ], memberOf "ExcessiveParameterList")
+
+    [<Fact>]
+    let ``explicitness follows heap cells through aliases helpers and callbacks`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "normand-heap.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let expected =
+            [ "insertThroughAlias", [ "ImplicitOutput" ]
+              "insertThroughHelper", [ "ImplicitOutput" ]
+              "uncalledSetter", []
+              "replaceWithPrivate", []
+              "privateListInsert", [ "ImplicitOutput" ]
+              "privateListPure", []
+              "separateFactories", []
+              "returnedHolder", [ "ImplicitOutput" ]
+              "oldMemberAliasPrivate", []
+              "oldMemberAliasCaller", [ "ImplicitOutput" ]
+              "fieldReplacementIndependent", [ "ImplicitOutput" ]
+              "conditionalReplacement", [ "ImplicitOutput" ]
+              "helperReplacement", []
+              "recordCopyCaller", [ "ImplicitOutput" ]
+              "eagerLambdaInsert", [ "ImplicitOutput" ]
+              "directLambdaInsert", [ "ImplicitOutput" ]
+              "callbackHelperInsert", [ "ImplicitOutput" ]
+              "capturedAliasWrite", [ "ImplicitInput" ]
+              "recordCopyReplaced", []
+              "conditionalCallbackReplacement", [ "ImplicitOutput" ]
+              "capturedAliasReplaced", [] ]
+
+        for owner, rules in expected do
+            let actual =
+                result.Report.Violations
+                |> List.filter (fun violation -> violation.Context.Member = Some owner)
+                |> List.map _.RuleName
+                |> List.sort
+
+            Assert.True((rules = actual), $"{owner}: expected {rules}, got {actual}")

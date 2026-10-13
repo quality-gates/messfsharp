@@ -103,12 +103,14 @@ module Domain =
     type FlowDirection =
         | InputFlow
         | OutputFlow
+        | UnknownFlow
 
     type FlowSource =
         | SharedState
         | AmbientEffect
         | ArgumentMutation
         | TypeState
+        | UnknownEffectSource
 
     /// Data entering or leaving a function or member other than through its arguments or return value.
     type ImplicitFlow =
@@ -181,7 +183,7 @@ module Domain =
           LoopIterationRegions: SourceLocation list
           LexicalScopes: LexicalScope list
           SyntacticReferences: SyntacticReference list
-          ImplicitFlows: ImplicitFlow list }
+          ImplicitFlows: Lazy<ImplicitFlow list> }
 
     type SymbolContext =
         { Namespace: string option

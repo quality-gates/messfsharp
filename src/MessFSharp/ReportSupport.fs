@@ -1,5 +1,6 @@
 namespace MessFSharp
 
+open System.Text.Encodings.Web
 open System.Text.Json
 open System.Text.Json.Serialization
 open System.Xml.Linq
@@ -28,5 +29,6 @@ module internal ReportSupport =
     let jsonOptions () =
         let options = JsonSerializerOptions(WriteIndented = true)
         options.PropertyNamingPolicy <- JsonNamingPolicy.CamelCase
+        options.Encoder <- JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         options.DefaultIgnoreCondition <- JsonIgnoreCondition.Never
         options

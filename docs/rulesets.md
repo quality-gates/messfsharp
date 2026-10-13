@@ -11,7 +11,7 @@ configuration, and CI annotations. Built-in names are case-insensitive.
 | `cleancode` | `BooleanArgumentFlag`, `ElseExpression`, `StaticAccess`, `IfStatementAssignment`, `DuplicatedArrayKey` |
 | `design` | `ExitExpression`, `GotoStatement`, `CountInLoopExpression`, `DevelopmentCodeFragment`, `EmptyCatchBlock`, `CouplingBetweenObjects`, `GlobalVariable`, `LackOfCohesionOfMethods` |
 | `controversial` | `CamelCaseClassName`, `CamelCaseMethodName`, `CamelCasePropertyName`, `CamelCaseParameterName`, `CamelCaseVariableName` |
-| `explicitness` | `ImplicitInput`, `ImplicitOutput` |
+| `explicitness` | `ImplicitInput`, `ImplicitOutput`, `UnknownEffect` |
 | `strictexplicitness` | `ImplicitClassInput`, `ImplicitClassOutput` |
 
 The recommended `fsharp` ruleset composes the catalog and deliberately leaves
@@ -39,20 +39,46 @@ output is its return value; anything else is implicit.
   `Environment.GetEnvironmentVariable`, `Console.ReadLine`, `stdin`, and
   `File`/`Directory` reads.
 
-Immutable module values are not inputs, because they cannot change between
-calls. Module-level arrays are also not treated as inputs when read, because
-they are usually lookup tables; writes to them are still outputs.
+Immutable module bindings are not automatically inputs. Reading a mutable
+object through one is an input, including a module-level array used as a
+lookup table. Reading fixed private storage allocated within the caller is
+local.
 
 `ImplicitOutput` reports a function or member that:
 
-- assigns (`<-`, `:=`, `incr`, `decr`, indexer set, `Array.set`) to anything
-  that is not one of its own locals;
+- assigns (`<-`, `:=`, `incr`, `decr`, indexer set, `Array.set`) to storage
+  visible outside the current call;
 - mutates an argument, either by assignment or by calling `Add`, `Remove`,
   `Clear`, `Append`, and similar on a parameter annotated as a mutable
   collection; or
 - performs ambient output such as `printfn`, `eprintfn`, `Console.WriteLine`,
   `File.WriteAllText`, `Directory.CreateDirectory`, or setting
   `Environment.CurrentDirectory`.
+
+`UnknownEffect` reports a call whose effects cannot be established in the
+supported analyzed subset. It is part of the `explicitness` ruleset, so
+unresolved calls do not masquerade as calculations. Known and unknown effects
+can coexist: a function that writes to stdout and also invokes an injected
+callback reports both the ambient output and the unknown callback effect.
+
+The analysis follows allocation identities through local aliases, record fields,
+array elements, same-file helpers, and known eager callbacks. Replacing a field
+with fresh storage removes its old contents for subsequent reads; other fields
+retain theirs. Mutating a caller-owned argument remains an output, while
+mutating storage freshly allocated inside the caller is local. `Array.copy` is
+a shallow copy: the copied array itself is fresh, but reachable elements inside
+it are still caller-owned. Conditional stores join their branches, so a value
+that may be caller-owned remains caller-owned for writes. Callable summaries
+also carry ambient reads and writes, unknown calls, and returned callable owners
+through same-file calls to a finite fixed point.
+
+The trusted calculation subset is deliberately narrow: exact built-in numeric
+operations, plain built-in records and containers, local functions resolved in
+the same file, known standard pure operations such as `Array.copy` and
+`List.map`, and unmodified standard-library union cases such as `Some` and
+`None`. User-defined type constructors declared in the same file are treated as
+allocation, not ambient effects. Type annotations alone do not prove that an
+arbitrary runtime value is pure.
 
 `strictexplicitness` adds the same checks for a type's own data. It is
 intended to be combined with `explicitness`. `ImplicitClassInput` reports
@@ -63,17 +89,19 @@ passing another method of the same type through the self identifier is not
 reported.
 
 Each owner reports a given name once per direction, at its first occurrence.
-Nested functions and lambdas belong to their enclosing module-level function
-or member. Locals, including local functions and parameters of nested lambdas,
+Nested functions, lambdas, and `seq`, `async`, and `lazy` bodies have their own owners.
+Creating one of these deferred values is quiet; its effects belong to the body
+when invoked, enumerated, or forced. A `task` body runs at creation. Executable
+module initialization belongs to `<module>`. Locals and nested parameters
 shadow outer names only within their own scope. Module values resolve from the
 innermost enclosing module outwards, then through `open` declarations.
-The analysis is syntactic only. It does not
-follow calls into other functions, does not see aliasing (including a type
-self identifier such as `type T() as self`), and does not treat exceptions or
-`exit` as outputs. Arguments of a lambda-bodied binding
-(`let f = fun xs -> ...`) are treated as locals. Module-level values that are
-not functions, such as `let job = async { ... }`, have no owner and are not
-checked.
+
+The analysis is intentionally bounded. It does not prove arbitrary runtime
+purity or dynamic dispatch, and it reports uncertainty for opaque external
+calls. Returning `fun () -> callback ()` attributes the callback invocation to
+the lambda, while immediately calling `callback ()` attributes it to the
+current owner. An unresolved receiver or callback does not certify a call as
+pure. Exceptions and `exit` are not treated as outputs.
 
 The exploratory testing reports ([2026-09-23](exploratory-testing/2026-09-23-explicitness.md),
 [2026-09-26](exploratory-testing/2026-09-26-messfsharp.md))
