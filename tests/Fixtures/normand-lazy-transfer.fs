@@ -1,6 +1,9 @@
 module NormandLazyTransfer
 
-let make () = lazy (printfn "body"; 1)
+let make () =
+    lazy
+        (printfn "body"
+         1)
 
 let forceBinding () =
     let value = make ()

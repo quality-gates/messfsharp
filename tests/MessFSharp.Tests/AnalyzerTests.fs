@@ -4074,10 +4074,79 @@ type Leaf() =
             |> List.sort
 
         let expected =
-            [ Some "<lazy>", "ImplicitOutput", 3
-              Some "forceBinding", "ImplicitOutput", 7
-              Some "forceReturn", "ImplicitOutput", 9
-              Some "forceValue", "ImplicitOutput", 13 ]
+            [ Some "<lazy>", "ImplicitOutput", 5
+              Some "forceBinding", "ImplicitOutput", 10
+              Some "forceReturn", "ImplicitOutput", 12
+              Some "forceValue", "ImplicitOutput", 16 ]
+            |> List.sort
+
+        Assert.Equal<(string option * string * int) list>(expected, actual)
+
+    [<Fact>]
+    let ``explicitness distinguishes lazy Value from reference and record Value`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "normand-value-boundary.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.Context.Member, violation.RuleName, violation.Location.StartLine)
+            |> List.sort
+
+        let expected =
+            [ Some "<lazy>", "ImplicitOutput", 8
+              Some "<lazy>", "ImplicitOutput", 22
+              Some "<lazy>", "ImplicitOutput", 29
+              Some "moduleRefRead", "ImplicitInput", 17
+              Some "knownLazy", "ImplicitOutput", 25
+              Some "returnedLazy", "ImplicitOutput", 28
+              Some "moduleLazyRead", "ImplicitOutput", 33
+              Some "unknownLazy", "UnknownEffect", 34
+              Some "unknownLazyForce", "UnknownEffect", 35
+              Some "unknownFromCallback", "UnknownEffect", 38
+              Some "unknownFromCallback", "UnknownEffect", 39
+              Some "<lazy>", "ImplicitOutput", 44
+              Some "qualifiedLazyRead", "ImplicitOutput", 47
+              Some "<lazy>", "ImplicitOutput", 51
+              Some "forceFactory", "ImplicitOutput", 55
+              Some "forceQualifiedAlias", "ImplicitOutput", 61
+              Some "unknownLazyAlias", "UnknownEffect", 73
+              Some "moduleBoxRead", "ImplicitInput", 76
+              Some "moduleBoxWrite", "ImplicitOutput", 77
+              Some "<module>", "ImplicitInput", 80
+              Some "moduleRefAliasRead", "ImplicitInput", 81
+              Some "moduleBoxAliasRead", "ImplicitInput", 82
+              Some "derefReturnedRef", "ImplicitInput", 85
+              Some "readImmutableBoxAlias", "ImplicitInput", 90
+              Some "writeImmutableBox", "ImplicitOutput", 91
+              Some "readImmutableBox", "ImplicitInput", 92 ]
+            |> List.sort
+
+        Assert.Equal<(string option * string * int) list>(expected, actual)
+
+    [<Fact>]
+    let ``explicitness reads private storage only after an observed write`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "normand-private-storage.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.Context.Member, violation.RuleName, violation.Location.StartLine)
+            |> List.sort
+
+        let expected =
+            [ Some "writtenRefRead", "ImplicitInput", 13
+              Some "writtenRefAliasRead", "ImplicitInput", 14
+              Some "writtenRefWrite", "ImplicitOutput", 15
+              Some "writtenCounterRead", "ImplicitInput", 19
+              Some "writtenCounterAliasRead", "ImplicitInput", 20
+              Some "writtenCounterWrite", "ImplicitOutput", 21
+              Some "sharedCounterRead", "ImplicitInput", 26
+              Some "sharedCounterAliasRead", "ImplicitInput", 27
+              Some "sharedCounterWrite", "ImplicitOutput", 28 ]
             |> List.sort
 
         Assert.Equal<(string option * string * int) list>(expected, actual)

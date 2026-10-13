@@ -86,6 +86,8 @@ module Flows =
 
     type private Access =
         | Read of string list
+        | ReadValue of string list
+        | ReadStorage of StorageExpr
         | Write of string list * readsExisting: bool * storageTarget: string list
         | Assign of string list
         | MutatingCall of string list
@@ -106,6 +108,7 @@ module Flows =
         | Parameter of OwnerKey * string * bool * int
         | ValueType of OwnerKey * string * string list
         | DeclaredType of (int * int) * string list * Set<string> option
+        | MutableRecordType of string list
         | PropertyOwner of OwnerKey
         | Arity of OwnerKey * int
         | SequenceParameter of OwnerKey * string
@@ -123,6 +126,10 @@ module Flows =
         | OpenDispatch of (int * int)
         | PureConstructor of path: string list * name: string
         | ModuleData of path: string list * name: string * tracked: bool * container: bool * pos: (int * int)
+        | ModuleDeferred of pos: (int * int) * path: string list * value: ValueExpr * source: range
+        | ModuleValueType of pos: (int * int) * annotation: string list
+        | MutableModuleBinding of pos: (int * int)
+        | ExportedModuleBinding of pos: (int * int)
         | ReferenceValue of path: string list * name: string
         | Open of path: string list * target: string list * pos: (int * int)
         | Candidate of Owner * Access * range
@@ -189,6 +196,8 @@ module Flows =
           ReturnValues: Map<OwnerKey, ValueExpr * range>
           PureConstructors: Set<string list * string>
           ReferenceValues: Set<string list * string>
+          OrdinaryValueProperty: Owner -> ValueExpr -> range -> bool
+          ReferenceCopy: Owner -> string list -> range -> bool
           Values: Map<OwnerKey * string, ValueReference> -> Owner -> ValueExpr -> range -> ValueSummary
           OpaqueRead: Owner -> string list -> range -> bool
           Owners: Map<OwnerKey, Owner> }
@@ -658,7 +667,7 @@ module Flows =
         | None, _ when isWriteTarget ancestors nodeRange -> None
         | None, _ :: _ :: _ when mutatingMethods.Contains(List.last identifiers) ->
             Some(MutatingCall(List.take (identifiers.Length - 1) identifiers))
-        | None, _ -> Some(Read identifiers)
+        | None, _ -> Some(ReadValue identifiers)
 
     let private expressionAccess ancestors expression =
         match expression with
@@ -670,7 +679,7 @@ module Flows =
                 || isNamedArgument ancestors identifier.idRange
                 ->
                 None
-            | None -> Some(Read [ identifier.idText ])
+            | None -> Some(ReadValue [ identifier.idText ])
         | SynExpr.LongIdent(longDotId = SynLongIdent(id = identifiers)) ->
             longIdentAccess ancestors expression.Range (names identifiers)
         | SynExpr.LongIdentSet(longDotId = SynLongIdent(id = identifiers)) ->
@@ -991,14 +1000,33 @@ module Flows =
             | SynExpr.DotGet(expr = source; longDotId = SynLongIdent(id = [ operation ])) when
                 operation.idText = "Value"
                 ->
-                [ Candidate(current, ForceProperty(valueExpr source), expression.Range) ]
+                let read =
+                    match storageExpr source with
+                    | Some(CallResultStorage _ as storage) ->
+                        [ Candidate(current, ReadStorage storage, expression.Range) ]
+                    | _ ->
+                        match rootNames source with
+                        | [] -> []
+                        | path -> [ Candidate(current, Read path, expression.Range) ]
+
+                read @ [ Candidate(current, ForceProperty(valueExpr source), expression.Range) ]
             | SynExpr.LongIdent(longDotId = SynLongIdent(id = identifiers)) when
                 identifiers.Length > 1 && (List.last identifiers).idText = "Value"
                 ->
                 let path = names identifiers
 
-                [ Candidate(current, Read path, expression.Range)
+                [ Candidate(current, Read(List.take (path.Length - 1) path), expression.Range)
                   Candidate(current, ForceProperty(ValuePath(List.take (path.Length - 1) path)), expression.Range) ]
+            | SynExpr.LongIdent(longDotId = SynLongIdent(id = identifiers)) when
+                identifiers.Length > 1
+                && (List.last identifiers).idText = "Force"
+                && (ancestors
+                    |> List.exists (function
+                        | SyntaxNode.SynExpr(SynExpr.App(funcExpr = functionExpr)) ->
+                            Range.equals functionExpr.Range expression.Range
+                        | _ -> false))
+                ->
+                [ Candidate(current, Read(List.take (identifiers.Length - 1) (names identifiers)), expression.Range) ]
             | SynExpr.DotGet(expr = source; longDotId = SynLongIdent(id = [ operation ])) when
                 mutatingMethods.Contains operation.idText
                 ->
@@ -1202,7 +1230,7 @@ module Flows =
         let tracked =
             (container && (exported || not (createsArray body)))
             || isMutable
-            || createsRef body
+            || (createsRef body && exported)
 
         let moduleData () =
             patternNames container pattern
@@ -1211,11 +1239,27 @@ module Flows =
                       modulePathOf ancestors,
                       name,
                       tracked || (isContainer && not (createsArray body)),
-                      isContainer,
+                      isContainer || createsRef body,
                       key pattern.Range
                   )
                   if createsRef body then
-                      ReferenceValue(modulePathOf ancestors, name) ])
+                      ReferenceValue(modulePathOf ancestors, name)
+                      ModuleValueType(key pattern.Range, [ "ref" ])
+                  if isMutable then
+                      MutableModuleBinding(key pattern.Range)
+                  if exported then
+                      ExportedModuleBinding(key pattern.Range)
+                  for annotation in patternTypes (ModuleOwner(modulePathOf ancestors)) pattern do
+                      match annotation with
+                      | ValueType(_, _, typeName) -> ModuleValueType(key pattern.Range, typeName)
+                      | _ -> ()
+                  match body with
+                  | SynExpr.Typed(targetType = annotation) -> ModuleValueType(key pattern.Range, typeNames annotation)
+                  | _ -> ()
+                  match valueExpr body with
+                  | ValueOther
+                  | ValueFresh -> ()
+                  | value -> ModuleDeferred(key pattern.Range, modulePathOf ancestors, value, body.Range) ])
 
         match parent, typeKeyOf ancestors with
         | SyntaxNode.SynModule(SynModuleDecl.Let _), _ -> moduleData ()
@@ -1299,8 +1343,17 @@ module Flows =
                     |> Some
                 | _ -> None
 
+            let mutableRecord =
+                match representation with
+                | SynTypeDefnRepr.Simple(simpleRepr = SynTypeDefnSimpleRepr.Record(recordFields = fields)) when
+                    fields |> List.exists (fun (SynField(isMutable = isMutable)) -> isMutable)
+                    ->
+                    [ MutableRecordType(modulePathOf path @ names identifiers) ]
+                | _ -> []
+
             DeclaredType(key typeRange, modulePathOf path @ names identifiers, fields)
-            :: (constructors |> List.map (fun name -> PureConstructor(modulePathOf path, name)))
+            :: (mutableRecord
+                @ (constructors |> List.map (fun name -> PureConstructor(modulePathOf path, name))))
         | SyntaxNode.SynBinding(SynBinding(headPat = pattern; expr = expression) as binding), _, Some current when
             current.Key <> bindingKey binding
             ->
@@ -1696,11 +1749,105 @@ module Flows =
                 key, items |> List.map snd |> List.sortByDescending (fun (_, _, pos) -> pos))
             |> Map.ofList
 
+        let moduleDeferred =
+            facts
+            |> List.choose (function
+                | ModuleDeferred(position, path, value, source) -> Some(position, (path, value, source))
+                | _ -> None)
+            |> Map.ofList
+
+        let moduleValueTypes =
+            facts
+            |> List.choose (function
+                | ModuleValueType(position, annotation) -> Some(position, annotation)
+                | _ -> None)
+            |> Map.ofList
+
+        let mutableRecordTypes =
+            facts
+            |> List.choose (function
+                | MutableRecordType name -> Some name
+                | _ -> None)
+            |> Set.ofList
+
+        let mutableModuleBindings =
+            facts
+            |> List.choose (function
+                | MutableModuleBinding position -> Some position
+                | _ -> None)
+            |> Set.ofList
+
+        let exportedModuleBindings =
+            facts
+            |> List.choose (function
+                | ExportedModuleBinding position -> Some position
+                | _ -> None)
+            |> Set.ofList
+
         let opens =
             facts
             |> List.choose (function
                 | Open(path, target, pos) -> Some(path, target, pos)
                 | _ -> None)
+
+        let declaredModuleData = moduleData
+
+        let moduleDataByPosition =
+            declaredModuleData
+            |> Map.toList
+            |> List.collect (fun ((path, _), entries) ->
+                entries
+                |> List.map (fun (tracked, container, position) -> position, (path, tracked, container)))
+            |> Map.ofList
+
+        let moduleSource position =
+            match Map.tryFind position moduleDeferred with
+            | Some(path, ValuePath source, sourceRange) ->
+                let owner =
+                    { Key = ModuleOwner path
+                      Name = "<module>"
+                      Line = 0
+                      TypeKey = None
+                      Self = None
+                      Path = path }
+
+                moduleValue declaredModuleData opens owner source sourceRange
+                |> Option.map (fun (_, (_, _, sourcePosition)) -> sourcePosition)
+            | _ -> None
+
+        let rec moduleFlags visited position =
+            let path, tracked, container = Map.find position moduleDataByPosition
+
+            let mutableRecord =
+                moduleValueTypes
+                |> Map.tryFind position
+                |> Option.exists (fun annotation ->
+                    enclosing path
+                    |> List.exists (fun prefix -> Set.contains (prefix @ annotation) mutableRecordTypes))
+
+            let tracked =
+                tracked || (mutableRecord && Set.contains position exportedModuleBindings)
+
+            let container = container || mutableRecord
+
+            if Set.contains position visited then
+                tracked, container
+            else
+                match moduleSource position with
+                | Some sourcePosition when sourcePosition <> position ->
+                    let sourceTracked, sourceContainer =
+                        moduleFlags (Set.add position visited) sourcePosition
+
+                    tracked || sourceTracked, container || sourceContainer
+                | _ -> tracked, container
+
+        let moduleData =
+            declaredModuleData
+            |> Map.map (fun _ entries ->
+                entries
+                |> List.map (fun (tracked, container, position) ->
+                    let sourceTracked, sourceContainer = moduleFlags Set.empty position
+                    tracked || sourceTracked, container || sourceContainer, position))
 
         let pureConstructors =
             facts
@@ -1716,7 +1863,7 @@ module Flows =
                 | _ -> None)
             |> Set.ofList
 
-        let writtenContainers =
+        let directlyWrittenContainers =
             facts
             |> List.choose (function
                 | Candidate(current, Write(identifiers, _, _), accessRange) ->
@@ -1724,6 +1871,41 @@ module Flows =
                     |> Option.bind (fun (_, (_, container, position)) -> if container then Some position else None)
                 | _ -> None)
             |> Set.ofList
+
+        let moduleAliases =
+            moduleDataByPosition
+            |> Map.toSeq
+            |> Seq.choose (fun (position, _) -> moduleSource position |> Option.map (fun source -> position, source))
+            |> Map.ofSeq
+
+        let reverseAliases =
+            moduleAliases
+            |> Map.toList
+            |> List.groupBy snd
+            |> List.map (fun (source, aliases) -> source, aliases |> List.map fst)
+            |> Map.ofList
+
+        let rec writtenContainer visited position =
+            if Set.contains position visited then
+                false
+            elif Set.contains position directlyWrittenContainers then
+                true
+            else
+                let neighbors =
+                    (Map.tryFind position moduleAliases |> Option.toList)
+                    @ (Map.tryFind position reverseAliases |> Option.defaultValue [])
+
+                neighbors |> List.exists (writtenContainer (Set.add position visited))
+
+        let writtenContainers =
+            moduleDataByPosition
+            |> Map.toSeq
+            |> Seq.choose (fun (position, _) ->
+                if writtenContainer Set.empty position then
+                    Some position
+                else
+                    None)
+            |> Set.ofSeq
 
         let isLocal current name accessRange =
             bound
@@ -1965,6 +2147,21 @@ module Flows =
                 let evaluate owner expression expressionRange =
                     valueOf visited context owner expression expressionRange
 
+                let moduleExpression identifiers =
+                    moduleValue moduleData opens current identifiers accessRange
+                    |> Option.bind (fun (_, (_, _, position)) -> Map.tryFind position moduleDeferred)
+                    |> Option.map (fun (path, value, source) ->
+                        let owner =
+                            { current with
+                                Key = ModuleOwner path
+                                Name = "<module>"
+                                Path = path
+                                TypeKey = None
+                                Self = None }
+
+                        evaluate owner value source)
+                    |> Option.defaultValue emptyValue
+
                 match expression with
                 | ValueOther -> emptyValue
                 | ValueFresh -> emptyValue
@@ -2056,7 +2253,7 @@ module Flows =
                                 emptyValue
                             | Some(Captured(ownerKey, name, _)) when Set.contains (ownerKey, name) sequenceParameters ->
                                 emptyValue
-                            | Some(ModuleValue _) -> emptyValue
+                            | Some(ModuleValue _) -> moduleExpression [ root ]
                             | _ -> unknownValue
                 | ValuePath identifiers ->
                     match resolve Set.empty current identifiers accessRange with
@@ -2067,6 +2264,7 @@ module Flows =
                                     { Target = target.Key
                                       Applied = 0
                                       Context = context } }
+                    | Some(ModuleValue _) -> moduleExpression identifiers
                     | _ -> unknownValue
                 | ValueInvoke(ValuePath [ "Seq"; "map" ], [ mapper; source ]) ->
                     let mapper = evaluate current mapper accessRange
@@ -2692,6 +2890,96 @@ module Flows =
                 Some(Captured(ownerKey, name, true))
             | resolution -> resolution
 
+        let ordinaryValueProperty current expression site =
+            let rec moduleAnnotation visited owner identifiers site =
+                moduleValue moduleData opens owner identifiers site
+                |> Option.bind (fun (_, (_, _, position)) ->
+                    if Set.contains position visited then
+                        None
+                    else
+                        match Map.tryFind position moduleValueTypes with
+                        | Some annotation -> Some annotation
+                        | None ->
+                            moduleDeferred
+                            |> Map.tryFind position
+                            |> Option.bind (fun (path, value, sourceRange) ->
+                                match value with
+                                | ValuePath source ->
+                                    moduleAnnotation
+                                        (Set.add position visited)
+                                        { owner with
+                                            Key = ModuleOwner path
+                                            Path = path }
+                                        source
+                                        sourceRange
+                                | _ -> None))
+
+            let rec annotationOf visited ownerKey name site =
+                if Set.contains (ownerKey, name) visited then
+                    None
+                else
+                    match Map.tryFind (ownerKey, name) valueTypes with
+                    | Some annotation -> Some annotation
+                    | None ->
+                        bindingValues
+                        |> Map.tryFind (ownerKey, name)
+                        |> Option.bind (
+                            List.filter (fun (_, scope, _) -> Range.rangeContainsRange scope site)
+                            >> List.sortBy (fun (_, scope, _) -> -scope.StartLine, -scope.StartColumn)
+                            >> List.tryHead
+                        )
+                        |> Option.bind (fun (value, _, valueRange) ->
+                            match value with
+                            | ValuePath [ source ] ->
+                                annotationOf (Set.add (ownerKey, name) visited) ownerKey source valueRange
+                                |> Option.orElseWith (fun () ->
+                                    owners
+                                    |> Map.tryFind ownerKey
+                                    |> Option.bind (fun owner ->
+                                        moduleAnnotation Set.empty owner [ source ] valueRange))
+                            | _ -> None)
+
+            let rec ordinary visited current expression site =
+                match expression with
+                | ValueInvoke(ValuePath identifiers, _) ->
+                    callable current identifiers site
+                    |> Option.bind (fun target ->
+                        if Set.contains target.Key visited then
+                            None
+                        else
+                            returnValues
+                            |> Map.tryFind target.Key
+                            |> Option.map (fun (returned, returnedRange) ->
+                                ordinary (Set.add target.Key visited) target returned returnedRange))
+                    |> Option.defaultValue false
+                | ValuePath(name :: _ as identifiers) ->
+                    let annotated =
+                        match resolve Set.empty current identifiers site with
+                        | Some(Argument(parameter, _)) -> annotationOf Set.empty current.Key parameter site
+                        | Some(Captured(ownerKey, captured, _)) -> annotationOf Set.empty ownerKey captured site
+                        | Some Local -> annotationOf Set.empty current.Key name site
+                        | Some(Data _)
+                        | Some(ModuleValue _) -> moduleAnnotation Set.empty current identifiers site
+                        | _ -> None
+
+                    annotated
+                    |> Option.exists (fun annotation ->
+                        List.tryLast annotation = Some "ref"
+                        || (declaredTypes
+                            |> Map.exists (fun _ (typeName, fields) ->
+                                List.tryLast typeName = List.tryLast annotation
+                                && (fields |> Option.exists (Set.contains "Value")))))
+                | _ -> false
+
+            ordinary Set.empty current expression site
+
+        let referenceCopy current identifiers site =
+            moduleValue moduleData opens current identifiers site
+            |> Option.exists (fun (name, (_, container, position)) ->
+                name = String.concat "." identifiers
+                && not (Set.contains position mutableModuleBindings)
+                && (container || ordinaryValueProperty current (ValuePath identifiers) site))
+
         { Resolve = resolveStorage
           Storage = storageOf
           StorageValue = storageExpression
@@ -2701,6 +2989,8 @@ module Flows =
           ReturnValues = returnValues
           PureConstructors = pureConstructors
           ReferenceValues = referenceValues
+          OrdinaryValueProperty = ordinaryValueProperty
+          ReferenceCopy = referenceCopy
           Values = valueOf Set.empty
           OpaqueRead = opaqueRead
           Owners = owners }
@@ -2798,6 +3088,11 @@ module Flows =
             |> _.Outer
             |> Set.toList
             |> List.collect (effectFromOrigin OutputFlow)
+        | ReadStorage expression ->
+            resolvers.StorageValue current expression accessRange
+            |> _.Outer
+            |> Set.toList
+            |> List.collect (effectFromOrigin InputFlow)
         | CallValue(callee, _) ->
             let value = resolvers.Values Map.empty current callee accessRange
 
@@ -2817,6 +3112,9 @@ module Flows =
 
             if
                 knownReference
+                || (match access with
+                    | ForceProperty _ -> resolvers.OrdinaryValueProperty current value accessRange
+                    | _ -> false)
                 || (resolvers.Values Map.empty current value accessRange).Complete
             then
                 []
@@ -2849,8 +3147,15 @@ module Flows =
             | Some(Unknown _)
             | None -> make direction AmbientEffect name
             | Some(CallableTarget _) -> []
-        | Read identifiers ->
-            if resolvers.OpaqueRead current identifiers accessRange then
+        | Read identifiers
+        | ReadValue identifiers ->
+            if
+                (match access with
+                 | ReadValue _ -> resolvers.ReferenceCopy current identifiers accessRange
+                 | _ -> false)
+            then
+                []
+            elif resolvers.OpaqueRead current identifiers accessRange then
                 [ UnknownEffect(UnknownCall(String.concat "." identifiers)) ]
             else
                 match resolve current identifiers with
