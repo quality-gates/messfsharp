@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.17
+
+- Track storage identity and deferred effects in explicitness analysis (#225).
+- Known issue: convergent callback aliases can cause slow explicitness analysis (#226).
+
 ## 0.1.16
 
 - Retain paths on locationless GitHub annotations (#207, #215).
