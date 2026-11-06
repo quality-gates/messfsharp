@@ -83,8 +83,8 @@ module Deliberate =
     let value = 1
 ```
 
-Without `--strict`, suppressed findings are omitted from the report. With
-`--strict`, they stay visible and marked suppressed.
+Without `--strict`, suppressed findings are omitted from the report.
+`--strict` includes findings that suppression metadata would otherwise omit.
 
 ## Drop it into CI
 
