@@ -41,7 +41,7 @@ module NonCodeText =
 
     /// The 1-based line numbers that hold no F# code.
     let lines (source: SourceFile) =
-        let tokenizer = FSharpSourceTokenizer([], Some source.FullPath, None, None)
+        let tokenizer = CompilerContext.tokenizer source
         let state = ref FSharpTokenizerLexState.Initial
 
         source.Lines

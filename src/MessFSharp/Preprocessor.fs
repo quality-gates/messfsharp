@@ -38,7 +38,7 @@ module Preprocessor =
         if not (hasConditionalDirective source) then
             Set.empty
         else
-            let tokenizer = FSharpSourceTokenizer([], Some source.FullPath, None, None)
+            let tokenizer = CompilerContext.tokenizer source
             let state = ref FSharpTokenizerLexState.Initial
 
             source.Lines
