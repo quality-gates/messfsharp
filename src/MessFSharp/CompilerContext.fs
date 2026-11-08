@@ -29,5 +29,9 @@ module internal CompilerContext =
 
     let tokenizer (source: SourceFile) =
         let _, options = parsingArguments source
-        let defines = CompilerEnvironment.GetConditionalDefinesForEditing options
+
+        let defines =
+            CompilerEnvironment.GetConditionalDefinesForEditing options
+            |> List.filter (fun define -> define <> "EDITING")
+
         FSharpSourceTokenizer(defines, Some source.FullPath, None, None)

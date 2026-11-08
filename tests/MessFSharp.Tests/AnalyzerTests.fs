@@ -3260,6 +3260,10 @@ let alsoGood = 3
     [<InlineData(".fs", "EDITING", 5)>]
     [<InlineData(".fsi", "EDITING", 5)>]
     [<InlineData(".fsx", "EDITING", 5)>]
+    [<InlineData(".fsx", "EDITING'", 5)>]
+    [<InlineData(".fsx", "EDITING_", 5)>]
+    [<InlineData(".fsx", "áEDITING", 5)>]
+    [<InlineData(".fsx", "EDITINGé", 5)>]
     let ``built-in conditional symbols select the active declaration`` extension symbol expectedLine =
         let path = Path.Combine(Path.GetTempPath(), "messfsharp-conditional" + extension)
         let kind = SourceKind.ofPath path

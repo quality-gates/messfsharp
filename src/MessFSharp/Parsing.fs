@@ -21,7 +21,11 @@ module Parsing =
             let parsePath, options = CompilerContext.parsingArguments source
 
             let results =
-                checker.Value.ParseFile(parsePath, SourceText.ofString source.Text, options)
+                checker.Value.ParseFile(
+                    parsePath,
+                    SourceText.ofString (Preprocessor.compilerDefaultParserText source),
+                    options
+                )
                 |> Async.RunSynchronously
 
             let errors =
