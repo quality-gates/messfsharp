@@ -3297,6 +3297,53 @@ let alsoGood = 3
             )
         | Error errors -> failwithf "Expected valid F# source, got %A" errors
 
+    [<Theory>]
+    [<InlineData("\n")>]
+    [<InlineData("\r\n")>]
+    let ``conditional symbols ignore directive text in strings and comments`` newline =
+        let text =
+            String.concat
+                newline
+                [ ""
+                  "let text = \"\"\""
+                  "#if EDITING"
+                  "let BadLiteral = 1"
+                  "#endif"
+                  "\"\"\""
+                  "(*"
+                  "#if EDITING"
+                  "let BadComment = 1"
+                  "#endif"
+                  "*)"
+                  "#if\t!EDITING && INTERACTIVE"
+                  "let BadThen = 1"
+                  "#else"
+                  "let BadElse = 2"
+                  "#endif" ]
+
+        let source = SourceFile.ofText "conditional.fsx" Script text
+        let rule = Rules.byName.["camelcasevariablename"]
+
+        let selection =
+            { Name = rule.Name
+              RulesetName = "fsharp"
+              Priority = rule.DefaultPriority
+              Properties = rule.DefaultProperties }
+
+        match Engine.analyzeSource false [ selection ] source with
+        | Ok violations ->
+            Assert.Equal<int list>([ 13 ], violations |> List.map (fun violation -> violation.Location.StartLine))
+        | Error errors -> failwithf "Expected valid F# source, got %A" errors
+
+    [<Fact>]
+    let ``unterminated conditional directives report a parser error`` () =
+        let source =
+            SourceFile.ofText "conditional.fsx" Script "#if EDITING\nlet goodName = 1\n"
+
+        match Parsing.parse source with
+        | Error _ -> ()
+        | Ok _ -> failwith "Expected an error for a missing #endif"
+
     [<Fact>]
     let ``child declarations track enclosing parent start line`` () =
         let analyzed =
