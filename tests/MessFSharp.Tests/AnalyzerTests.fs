@@ -3257,6 +3257,9 @@ let alsoGood = 3
     [<InlineData(".fs", "COMPILED")>]
     [<InlineData(".fsi", "COMPILED")>]
     [<InlineData(".fsx", "INTERACTIVE")>]
+    [<InlineData(".fs", "EDITING")>]
+    [<InlineData(".fsi", "EDITING")>]
+    [<InlineData(".fsx", "EDITING")>]
     let ``built-in conditional symbols select the active declaration`` extension symbol =
         let path = Path.Combine(Path.GetTempPath(), "messfsharp-conditional" + extension)
         let kind = SourceKind.ofPath path

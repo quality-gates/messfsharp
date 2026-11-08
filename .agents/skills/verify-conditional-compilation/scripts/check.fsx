@@ -9,6 +9,7 @@ open MessFSharp.Domain
 type Symbol =
     | Absent
     | Compiled
+    | Editing
     | Interactive
 
 type Condition =
@@ -40,7 +41,7 @@ type Failure = { Case: RenderedCase; Actual: string }
 let kinds = [ Implementation; Signature; Script ]
 
 let conditions =
-    [ for symbol in [ Absent; Compiled; Interactive ] do
+    [ for symbol in [ Absent; Compiled; Editing; Interactive ] do
           Defined symbol
           NotDefined symbol ]
 
@@ -54,6 +55,7 @@ let symbolName =
     function
     | Absent -> "ABSENT"
     | Compiled -> "COMPILED"
+    | Editing -> "EDITING"
     | Interactive -> "INTERACTIVE"
 
 let conditionText =
@@ -71,6 +73,7 @@ let isActive kind condition =
         function
         | Absent -> false
         | Compiled -> kind <> Script
+        | Editing -> true
         | Interactive -> kind = Script
 
     match condition with
