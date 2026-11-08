@@ -43,7 +43,7 @@ This is bounded exhaustive testing of the actual F# analyzer, not an unbounded p
 
 The checked path runs `Engine.analyzeSource`, `Parsing.parse`, `CompilerContext.parsingArguments`, `CompilerContext.tokenizer`, `Preprocessor.compilerDefaultParserText`, `Model.analyze`, `Preprocessor.inactiveLines`, `Preprocessor.maskInactiveLines`, `Scanner.scan`, `SyntaxModel.normalize`, `NonCodeText.lines`, and `Rules.camelCaseVariableName`.
 
-The last confirmed code sync is commit `b339fb3a4cb75fa19878fd59446f1ee2e7e513a5`. Inspect changes since that commit, including uncommitted changes, to the following files before relying on the result:
+The last confirmed code sync is commit `43169fa8b68aa9e9817efc281c355dc32cf101ed`. Inspect changes since that commit, including uncommitted changes, to the following files before relying on the result:
 
 - `src/MessFSharp/CompilerContext.fs`, `src/MessFSharp/Parsing.fs`, and `src/MessFSharp/Preprocessor.fs`.
 - `src/MessFSharp/Scanner.fs`, `src/MessFSharp/NonCodeText.fs`, and `src/MessFSharp/SyntaxModel.fs`.
@@ -51,4 +51,4 @@ The last confirmed code sync is commit `b339fb3a4cb75fa19878fd59446f1ee2e7e513a5
 - `src/MessFSharp/MessFSharp.fsproj`, `src/MessFSharp/packages.lock.json`, `Directory.Build.props`, and `global.json`.
 - This skill and its scripts.
 
-For example, run `git diff b339fb3a4cb75fa19878fd59446f1ee2e7e513a5 -- src/MessFSharp Directory.Build.props global.json .agents/skills/verify-conditional-compilation`. Confirm that the grammar, truth table, and selected rule still describe the intended code before moving the sync commit forward. If covered code changed without this review, use `/maintain-formal-verification-skill` to bring the check back in step.
+For example, run `git diff 43169fa8b68aa9e9817efc281c355dc32cf101ed -- src/MessFSharp Directory.Build.props global.json .agents/skills/verify-conditional-compilation`. Confirm that the grammar, truth table, and selected rule still describe the intended code before moving the sync commit forward. If covered code changed without this review, use `/maintain-formal-verification-skill` to bring the check back in step.
