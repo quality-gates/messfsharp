@@ -1,6 +1,5 @@
 namespace MessFSharp
 
-open System
 open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Diagnostics
 open FSharp.Compiler.Text
@@ -19,25 +18,14 @@ module Parsing =
 
     let parse (source: SourceFile) =
         try
-            let parsePath =
-                match IO.Path.GetExtension(source.FullPath).ToLowerInvariant() with
-                | ".fs"
-                | ".fsi"
-                | ".fsx" -> source.FullPath
-                | _ ->
-                    source.FullPath
-                    + if source.Kind = Script then ".fsx"
-                      elif source.Kind = Signature then ".fsi"
-                      else ".fs"
-
-            let options =
-                { FSharpParsingOptions.Default with
-                    SourceFiles = [| parsePath |]
-                    IsInteractive = source.Kind = Script
-                    IsExe = source.Kind = Implementation }
+            let parsePath, options = CompilerContext.parsingArguments source
 
             let results =
-                checker.Value.ParseFile(parsePath, SourceText.ofString source.Text, options)
+                checker.Value.ParseFile(
+                    parsePath,
+                    SourceText.ofString (Preprocessor.compilerDefaultParserText source),
+                    options
+                )
                 |> Async.RunSynchronously
 
             let errors =

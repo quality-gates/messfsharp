@@ -117,7 +117,7 @@ module Scanner =
         ranges.ToArray()
 
     let private lex (source: SourceFile) =
-        let tokenizer = FSharpSourceTokenizer([], Some source.FullPath, None, None)
+        let tokenizer = CompilerContext.tokenizer source
         let state = ref FSharpTokenizerLexState.Initial
         let tokens = ResizeArray<LexedToken>()
 
@@ -525,7 +525,7 @@ module Scanner =
             && column < token.LeftColumn + token.Text.Length)
 
     let private nonCodeRanges (source: SourceFile) =
-        let tokenizer = FSharpSourceTokenizer([], Some source.FullPath, None, None)
+        let tokenizer = CompilerContext.tokenizer source
         let state = ref FSharpTokenizerLexState.Initial
         let ranges = ResizeArray<int * int * int>()
 

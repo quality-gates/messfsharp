@@ -3253,6 +3253,122 @@ let alsoGood = 3
         Assert.Equal(1, named "goodName")
         Assert.Equal(1, named "alsoGood")
 
+    [<Theory>]
+    [<InlineData(".fs", "COMPILED", 3)>]
+    [<InlineData(".fsi", "COMPILED", 3)>]
+    [<InlineData(".fsx", "INTERACTIVE", 3)>]
+    [<InlineData(".fs", "EDITING", 5)>]
+    [<InlineData(".fsi", "EDITING", 5)>]
+    [<InlineData(".fsx", "EDITING", 5)>]
+    [<InlineData(".fsx", "EDITING'", 5)>]
+    [<InlineData(".fsx", "EDITING_", 5)>]
+    [<InlineData(".fsx", "áEDITING", 5)>]
+    [<InlineData(".fsx", "EDITINGé", 5)>]
+    let ``built-in conditional symbols select the active declaration`` extension symbol expectedLine =
+        let path = Path.Combine(Path.GetTempPath(), "messfsharp-conditional" + extension)
+        let kind = SourceKind.ofPath path
+
+        let declaration name =
+            if kind = Signature then
+                sprintf "val %s: int" name
+            else
+                sprintf "let %s = 1" name
+
+        let text =
+            String.concat
+                "\n"
+                [ (if kind = Script then "" else "module Conditional")
+                  "#if " + symbol
+                  declaration "BadThen"
+                  "#else"
+                  declaration "BadElse"
+                  "#endif" ]
+
+        let source = SourceFile.ofText path kind text
+        let rule = Rules.byName.["camelcasevariablename"]
+
+        let selection =
+            { Name = rule.Name
+              RulesetName = "fsharp"
+              Priority = rule.DefaultPriority
+              Properties = rule.DefaultProperties }
+
+        match Engine.analyzeSource false [ selection ] source with
+        | Ok violations ->
+            Assert.Equal<int list>(
+                [ expectedLine ],
+                violations |> List.map (fun violation -> violation.Location.StartLine)
+            )
+        | Error errors -> failwithf "Expected valid F# source, got %A" errors
+
+    [<Theory>]
+    [<InlineData("\n")>]
+    [<InlineData("\r\n")>]
+    let ``conditional symbols ignore directive text in strings and comments`` newline =
+        let text =
+            String.concat
+                newline
+                [ ""
+                  "let text = \"\"\""
+                  "#if EDITING"
+                  "let BadLiteral = 1"
+                  "#endif"
+                  "\"\"\""
+                  "(*"
+                  "#if EDITING"
+                  "let BadComment = 1"
+                  "#endif"
+                  "*)"
+                  "#if\t!EDITING && INTERACTIVE"
+                  "let BadThen = 1"
+                  "#else"
+                  "let BadElse = 2"
+                  "#endif" ]
+
+        let source = SourceFile.ofText "conditional.fsx" Script text
+        let rule = Rules.byName.["camelcasevariablename"]
+
+        let selection =
+            { Name = rule.Name
+              RulesetName = "fsharp"
+              Priority = rule.DefaultPriority
+              Properties = rule.DefaultProperties }
+
+        match Engine.analyzeSource false [ selection ] source with
+        | Ok violations ->
+            Assert.Equal<int list>([ 13 ], violations |> List.map (fun violation -> violation.Location.StartLine))
+        | Error errors -> failwithf "Expected valid F# source, got %A" errors
+
+    [<Fact>]
+    let ``unterminated conditional directives report a parser error`` () =
+        let source =
+            SourceFile.ofText "conditional.fsx" Script "#if EDITING\nlet goodName = 1\n"
+
+        match Parsing.parse source with
+        | Error _ -> ()
+        | Ok _ -> failwith "Expected an error for a missing #endif"
+
+    [<Theory>]
+    [<InlineData("EDITING EDITING", 13)>]
+    [<InlineData("!EDITING EDITING", 14)>]
+    [<InlineData("(EDITING) EDITING", 15)>]
+    let ``malformed conditional symbols report the original error range`` condition startColumn =
+        let source =
+            SourceFile.ofText "conditional.fsx" Script (sprintf "#if %s\nlet goodName = 1\n#endif\n" condition)
+
+        match Parsing.parse source with
+        | Error [ error ] ->
+            Assert.Equal("Incomplete preprocessor expression", error.Message)
+
+            let range =
+                error.Location
+                |> Option.map (fun location ->
+                    location.StartLine, location.StartColumn, location.EndLine, location.EndColumn)
+
+            Assert.Equal(Some(1, startColumn, 1, startColumn + 7), range)
+        | Error errors -> failwithf "Expected one parser error, got %A" errors
+        | Ok _ -> failwith "Expected an error for an invalid conditional expression"
+
     [<Fact>]
     let ``child declarations track enclosing parent start line`` () =
         let analyzed =
