@@ -3253,6 +3253,44 @@ let alsoGood = 3
         Assert.Equal(1, named "goodName")
         Assert.Equal(1, named "alsoGood")
 
+    [<Theory>]
+    [<InlineData(".fs", "COMPILED")>]
+    [<InlineData(".fsi", "COMPILED")>]
+    [<InlineData(".fsx", "INTERACTIVE")>]
+    let ``built-in conditional symbols select the active declaration`` extension symbol =
+        let path = Path.Combine(Path.GetTempPath(), "messfsharp-conditional" + extension)
+        let kind = SourceKind.ofPath path
+
+        let declaration name =
+            if kind = Signature then
+                sprintf "val %s: int" name
+            else
+                sprintf "let %s = 1" name
+
+        let text =
+            String.concat
+                "\n"
+                [ "module Conditional"
+                  "#if " + symbol
+                  declaration "BadActive"
+                  "#else"
+                  declaration "BadInactive"
+                  "#endif" ]
+
+        let source = SourceFile.ofText path kind text
+        let rule = Rules.byName.["camelcasevariablename"]
+
+        let selection =
+            { Name = rule.Name
+              RulesetName = "fsharp"
+              Priority = rule.DefaultPriority
+              Properties = rule.DefaultProperties }
+
+        match Engine.analyzeSource false [ selection ] source with
+        | Ok violations ->
+            Assert.Equal<int list>([ 3 ], violations |> List.map (fun violation -> violation.Location.StartLine))
+        | Error errors -> failwithf "Expected valid F# source, got %A" errors
+
     [<Fact>]
     let ``child declarations track enclosing parent start line`` () =
         let analyzed =
