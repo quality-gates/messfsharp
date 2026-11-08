@@ -29,6 +29,8 @@ The check uses the .NET SDK pinned by `global.json` and FSharp.Compiler.Service 
 
 Read the numbered source and compare the expected and actual finding lines. The generator uses an independent truth table: `ABSENT` and `EDITING` are undefined, `COMPILED` is defined for `.fs` and `.fsi`, and `INTERACTIVE` is defined for `.fsx`. A leading `!` inverts the condition. The `COMPILED` and `INTERACTIVE` modes are described in the [compiler directives reference](https://learn.microsoft.com/en-us/dotnet/fsharp/language-reference/compiler-directives). These are compiler-default symbols, not project-supplied defines. The pinned FSharp.Compiler.Service adds `EDITING` when `Parsing.parse` calls `ParseFile`, so the analyzer adjusts parser input to match compiler defaults.
 
+The parser input substitutes `NOT_SET` for the `EDITING` identifier in conditional expressions. Both identifiers have the same length, and `NOT_SET` is undefined in the current parser options and compiler defaults. If those options or implicit symbols change, confirm that the replacement remains undefined before trusting the check. If the analyzer accepts project-supplied defines, select an undefined replacement for that context.
+
 If the generated source or truth table no longer matches the intended parser options, correct the generator and rerun. Otherwise report the source, expected findings, and actual findings as a product defect. Treat parser errors and build errors as failures to check, not as a pass. Do not turn a product failure into an expected success.
 
 On the pre-fix commit `5a78d17eff0985400505e3ebbc17a21eda24a30a`, the original 903-case check found 466 failures. For `fsi-compiled-flat`, line 4 is active and line 6 is inactive. The analyzer reported a finding on line 6 and missed the one on line 4. The extended check includes `EDITING` and covers the fixes for [issue #230](https://github.com/quality-gates/messfsharp/issues/230) and [issue #231](https://github.com/quality-gates/messfsharp/issues/231).
@@ -41,7 +43,7 @@ This is bounded exhaustive testing of the actual F# analyzer, not an unbounded p
 
 The checked path runs `Engine.analyzeSource`, `Parsing.parse`, `CompilerContext.parsingArguments`, `CompilerContext.tokenizer`, `Preprocessor.compilerDefaultParserText`, `Model.analyze`, `Preprocessor.inactiveLines`, `Preprocessor.maskInactiveLines`, `Scanner.scan`, `SyntaxModel.normalize`, `NonCodeText.lines`, and `Rules.camelCaseVariableName`.
 
-The last confirmed code sync is commit `5afbe6a0493074df1264d8b61ac695a7fec6e21d`. Inspect changes since that commit, including uncommitted changes, to the following files before relying on the result:
+The last confirmed code sync is commit `b339fb3a4cb75fa19878fd59446f1ee2e7e513a5`. Inspect changes since that commit, including uncommitted changes, to the following files before relying on the result:
 
 - `src/MessFSharp/CompilerContext.fs`, `src/MessFSharp/Parsing.fs`, and `src/MessFSharp/Preprocessor.fs`.
 - `src/MessFSharp/Scanner.fs`, `src/MessFSharp/NonCodeText.fs`, and `src/MessFSharp/SyntaxModel.fs`.
@@ -49,4 +51,4 @@ The last confirmed code sync is commit `5afbe6a0493074df1264d8b61ac695a7fec6e21d
 - `src/MessFSharp/MessFSharp.fsproj`, `src/MessFSharp/packages.lock.json`, `Directory.Build.props`, and `global.json`.
 - This skill and its scripts.
 
-For example, run `git diff 5afbe6a0493074df1264d8b61ac695a7fec6e21d -- src/MessFSharp Directory.Build.props global.json .agents/skills/verify-conditional-compilation`. Confirm that the grammar, truth table, and selected rule still describe the intended code before moving the sync commit forward. If covered code changed without this review, use `/maintain-formal-verification-skill` to bring the check back in step.
+For example, run `git diff b339fb3a4cb75fa19878fd59446f1ee2e7e513a5 -- src/MessFSharp Directory.Build.props global.json .agents/skills/verify-conditional-compilation`. Confirm that the grammar, truth table, and selected rule still describe the intended code before moving the sync commit forward. If covered code changed without this review, use `/maintain-formal-verification-skill` to bring the check back in step.
