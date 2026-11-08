@@ -3348,6 +3348,27 @@ let alsoGood = 3
         | Error _ -> ()
         | Ok _ -> failwith "Expected an error for a missing #endif"
 
+    [<Theory>]
+    [<InlineData("EDITING EDITING", 13)>]
+    [<InlineData("!EDITING EDITING", 14)>]
+    [<InlineData("(EDITING) EDITING", 15)>]
+    let ``malformed conditional symbols report the original error range`` condition startColumn =
+        let source =
+            SourceFile.ofText "conditional.fsx" Script (sprintf "#if %s\nlet goodName = 1\n#endif\n" condition)
+
+        match Parsing.parse source with
+        | Error [ error ] ->
+            Assert.Equal("Incomplete preprocessor expression", error.Message)
+
+            let range =
+                error.Location
+                |> Option.map (fun location ->
+                    location.StartLine, location.StartColumn, location.EndLine, location.EndColumn)
+
+            Assert.Equal(Some(1, startColumn, 1, startColumn + 7), range)
+        | Error errors -> failwithf "Expected one parser error, got %A" errors
+        | Ok _ -> failwith "Expected an error for an invalid conditional expression"
+
     [<Fact>]
     let ``child declarations track enclosing parent start line`` () =
         let analyzed =

@@ -11,6 +11,8 @@ open Domain
 /// must drop them too. The compiler lexer, which marks the skipped regions as
 /// inactive code, does the evaluation of the directives.
 module Preprocessor =
+    let private undefinedDefaultSymbol = "NOT_SET"
+
     let private editingIdentifier =
         Regex(
             "(?<![\\p{L}\\p{Nl}\\p{Nd}\\p{Pc}\\p{Mn}\\p{Mc}\\p{Cf}'])EDITING(?![\\p{L}\\p{Nl}\\p{Nd}\\p{Pc}\\p{Mn}\\p{Mc}\\p{Cf}'])",
@@ -82,7 +84,7 @@ module Preprocessor =
                     let expression = line.Substring(start, length)
 
                     for symbol in editingIdentifier.Matches(expression) do
-                        "(A&&!A)".CopyTo(0, characters, offset + start + symbol.Index, 7)
+                        undefinedDefaultSymbol.CopyTo(0, characters, offset + start + symbol.Index, 7)
                         changed <- true
                 | None -> ()
 
