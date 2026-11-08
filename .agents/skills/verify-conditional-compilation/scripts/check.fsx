@@ -35,9 +35,7 @@ type RenderedCase =
       Text: string
       ExpectedLines: int list }
 
-type Failure =
-    { Case: RenderedCase
-      Actual: string }
+type Failure = { Case: RenderedCase; Actual: string }
 
 let kinds = [ Implementation; Signature; Script ]
 
@@ -46,26 +44,31 @@ let conditions =
           Defined symbol
           NotDefined symbol ]
 
-let kindName = function
+let kindName =
+    function
     | Implementation -> "fs"
     | Signature -> "fsi"
     | Script -> "fsx"
 
-let symbolName = function
+let symbolName =
+    function
     | Absent -> "ABSENT"
     | Compiled -> "COMPILED"
     | Interactive -> "INTERACTIVE"
 
-let conditionText = function
+let conditionText =
+    function
     | Defined symbol -> symbolName symbol
     | NotDefined symbol -> "!" + symbolName symbol
 
-let conditionName = function
+let conditionName =
+    function
     | Defined symbol -> (symbolName symbol).ToLowerInvariant()
     | NotDefined symbol -> "not-" + (symbolName symbol).ToLowerInvariant()
 
 let isActive kind condition =
-    let symbolIsDefined = function
+    let symbolIsDefined =
+        function
         | Absent -> false
         | Compiled -> kind <> Script
         | Interactive -> kind = Script
@@ -74,11 +77,13 @@ let isActive kind condition =
     | Defined symbol -> symbolIsDefined symbol
     | NotDefined symbol -> not (symbolIsDefined symbol)
 
-let branchName = function
+let branchName =
+    function
     | Then -> "then"
     | Else -> "else"
 
-let caseId = function
+let caseId =
+    function
     | Unconditional kind -> kindName kind + "-unconditional"
     | Conditional(kind, outer, layout) ->
         let prefix = kindName kind + "-" + conditionName outer
@@ -178,7 +183,10 @@ let selection =
 
 let check case =
     let rendered = render case
-    let path = Path.Combine(Path.GetTempPath(), "messfsharp-conditional-" + rendered.Id + "." + kindName rendered.Kind)
+
+    let path =
+        Path.Combine(Path.GetTempPath(), "messfsharp-conditional-" + rendered.Id + "." + kindName rendered.Kind)
+
     let source = SourceFile.ofText path rendered.Kind rendered.Text
 
     match Engine.analyzeSource false [ selection ] source with
@@ -187,7 +195,10 @@ let check case =
             { Case = rendered
               Actual = sprintf "analysis errors: %A" errors }
     | Ok violations ->
-        let actual = violations |> List.map (fun violation -> violation.Location.StartLine) |> List.sort
+        let actual =
+            violations
+            |> List.map (fun violation -> violation.Location.StartLine)
+            |> List.sort
 
         if actual = rendered.ExpectedLines then
             None
