@@ -73,7 +73,7 @@ let isActive kind condition =
         function
         | Absent -> false
         | Compiled -> kind <> Script
-        | Editing -> true
+        | Editing -> false
         | Interactive -> kind = Script
 
     match condition with
@@ -143,7 +143,7 @@ let render case =
         addDeclaration (active && not nestedActive) ("Bad" + name + "Else")
         lines.Add "#endif"
 
-    lines.Add "module Generated"
+    lines.Add(if kind = Script then "" else "module Generated")
     addDeclaration true "BadBefore"
 
     match case with

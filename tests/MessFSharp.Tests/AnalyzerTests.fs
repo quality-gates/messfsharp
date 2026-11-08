@@ -3254,13 +3254,13 @@ let alsoGood = 3
         Assert.Equal(1, named "alsoGood")
 
     [<Theory>]
-    [<InlineData(".fs", "COMPILED")>]
-    [<InlineData(".fsi", "COMPILED")>]
-    [<InlineData(".fsx", "INTERACTIVE")>]
-    [<InlineData(".fs", "EDITING")>]
-    [<InlineData(".fsi", "EDITING")>]
-    [<InlineData(".fsx", "EDITING")>]
-    let ``built-in conditional symbols select the active declaration`` extension symbol =
+    [<InlineData(".fs", "COMPILED", 3)>]
+    [<InlineData(".fsi", "COMPILED", 3)>]
+    [<InlineData(".fsx", "INTERACTIVE", 3)>]
+    [<InlineData(".fs", "EDITING", 5)>]
+    [<InlineData(".fsi", "EDITING", 5)>]
+    [<InlineData(".fsx", "EDITING", 5)>]
+    let ``built-in conditional symbols select the active declaration`` extension symbol expectedLine =
         let path = Path.Combine(Path.GetTempPath(), "messfsharp-conditional" + extension)
         let kind = SourceKind.ofPath path
 
@@ -3273,11 +3273,11 @@ let alsoGood = 3
         let text =
             String.concat
                 "\n"
-                [ "module Conditional"
+                [ (if kind = Script then "" else "module Conditional")
                   "#if " + symbol
-                  declaration "BadActive"
+                  declaration "BadThen"
                   "#else"
-                  declaration "BadInactive"
+                  declaration "BadElse"
                   "#endif" ]
 
         let source = SourceFile.ofText path kind text
@@ -3291,7 +3291,10 @@ let alsoGood = 3
 
         match Engine.analyzeSource false [ selection ] source with
         | Ok violations ->
-            Assert.Equal<int list>([ 3 ], violations |> List.map (fun violation -> violation.Location.StartLine))
+            Assert.Equal<int list>(
+                [ expectedLine ],
+                violations |> List.map (fun violation -> violation.Location.StartLine)
+            )
         | Error errors -> failwithf "Expected valid F# source, got %A" errors
 
     [<Fact>]
