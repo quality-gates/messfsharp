@@ -59,11 +59,26 @@ def cleanup_group(group):
     active.pop(group, None)
 
 
-def run(label, command, env):
+def launch(label, command, env, interrupt_before_register=False):
     note(f'register intent={label} owner={os.getpid()} teardown=kill-process-group')
-    child = subprocess.Popen(command, cwd=root, env=env, start_new_session=True)
-    active[child.pid] = label
-    note(f'registered label={label} pid={child.pid} pgid={child.pid}')
+    old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
+    try:
+        child = subprocess.Popen(
+            command, cwd=root, env=env, start_new_session=True,
+            preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, old_mask),
+        )
+        if interrupt_before_register:
+            note('inject SIGTERM between launch and registration')
+            os.kill(os.getpid(), signal.SIGTERM)
+        active[child.pid] = label
+        note(f'registered label={label} pid={child.pid} pgid={child.pid}')
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+    return child
+
+
+def run(label, command, env):
+    child = launch(label, command, env)
     try:
         rc = child.wait()
         note(f'completed label={label} exit={rc}')
@@ -94,11 +109,7 @@ env.update({
 try:
     note('registered policy: all child process groups; no browsers, containers, images, volumes or listening ports')
     if sys.argv[1:] == ['--test-interrupt']:
-        note('register intent=interrupt-test owner=self teardown=kill-process-group')
-        child = subprocess.Popen(['sleep', '60'], start_new_session=True)
-        active[child.pid] = 'interrupt-test'
-        note(f'registered label=interrupt-test pid={child.pid} pgid={child.pid}')
-        os.kill(os.getpid(), signal.SIGTERM)
+        launch('interrupt-test', ['sleep', '60'], env, interrupt_before_register=True)
     scratch.mkdir(exist_ok=True)
     (scratch / 'home').mkdir(exist_ok=True)
     run('sdk-download', ['bash', '-c', 'curl -fsSL https://dot.net/v1/dotnet-install.sh -o .explore/install.sh && bash .explore/install.sh --version 10.0.302 --install-dir .explore/sdk --no-path'], env)
