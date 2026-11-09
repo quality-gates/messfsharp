@@ -1,0 +1,2 @@
+src/Good.fs baseline_exit=2 --ignore-violations-on-exit_exit=0 report_bytes_equal=true
+src/Bad.fs baseline_exit=1 --ignore-errors-on-exit_exit=0 report_bytes_equal=true

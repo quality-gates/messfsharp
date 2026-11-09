@@ -1,0 +1,192 @@
+
+$ dotnet ../../src/MessFSharp/bin/Release/net10.0/messfsharp.dll src/Good.fs json design --only GlobalVariable
+{
+  "errors": [],
+  "tool": "messfsharp",
+  "version": "0.1.17",
+  "violations": [
+    {
+      "context": {
+        "member": null,
+        "module": "Demo",
+        "namespace": null,
+        "type": null
+      },
+      "description": "Module-level shared value 'counter' is mutable or globally visible.",
+      "endColumn": 24,
+      "endLine": 2,
+      "file": "src/Good.fs",
+      "helpUri": "https://github.com/quality-gates/messfsharp#globalvariable",
+      "priority": 3,
+      "rule": "GlobalVariable",
+      "ruleset": "design",
+      "startColumn": 1,
+      "startLine": 2
+    }
+  ]
+}
+exit=2
+
+$ dotnet ../../src/MessFSharp/bin/Release/net10.0/messfsharp.dll src json design --only GlobalVariable --reportfile reports/result.json
+src/Bad.fs:2:14: error: Unmatched '('
+src/Bad.fs:3:1: error: Unexpected syntax or possible incorrect indentation: this token is offside of context started at position (2:1). Try indenting this further.
+To continue using non-conforming indentation, pass the '--strict-indentation-' flag to the compiler, or set the language version to F# 7.
+exit=1
+
+report contents:
+{
+    "errors": [
+        {
+            "file": "src/Bad.fs",
+            "location": {
+                "endColumn": 15,
+                "endLine": 2,
+                "file": "src/Bad.fs",
+                "startColumn": 14,
+                "startLine": 2
+            },
+            "message": "Unmatched '('"
+        },
+        {
+            "file": "src/Bad.fs",
+            "location": {
+                "endColumn": 1,
+                "endLine": 3,
+                "file": "src/Bad.fs",
+                "startColumn": 1,
+                "startLine": 3
+            },
+            "message": "Unexpected syntax or possible incorrect indentation: this token is offside of context started at position (2:1). Try indenting this further.\nTo continue using non-conforming indentation, pass the '--strict-indentation-' flag to the compiler, or set the language version to F# 7."
+        }
+    ],
+    "tool": "messfsharp",
+    "version": "0.1.17",
+    "violations": [
+        {
+            "context": {
+                "member": null,
+                "module": "Demo",
+                "namespace": null,
+                "type": null
+            },
+            "description": "Module-level shared value 'counter' is mutable or globally visible.",
+            "endColumn": 24,
+            "endLine": 2,
+            "file": "src/Good.fs",
+            "helpUri": "https://github.com/quality-gates/messfsharp#globalvariable",
+            "priority": 3,
+            "rule": "GlobalVariable",
+            "ruleset": "design",
+            "startColumn": 1,
+            "startLine": 2
+        }
+    ]
+}
+
+$ dotnet ../../src/MessFSharp/bin/Release/net10.0/messfsharp.dll src json design --only GlobalVariable --ignore-errors-on-exit --reportfile reports/result.json
+src/Bad.fs:2:14: error: Unmatched '('
+src/Bad.fs:3:1: error: Unexpected syntax or possible incorrect indentation: this token is offside of context started at position (2:1). Try indenting this further.
+To continue using non-conforming indentation, pass the '--strict-indentation-' flag to the compiler, or set the language version to F# 7.
+exit=2
+
+$ dotnet ../../src/MessFSharp/bin/Release/net10.0/messfsharp.dll src/Good.fs json design --only GlobalVariable --ignore-violations-on-exit
+{
+  "errors": [],
+  "tool": "messfsharp",
+  "version": "0.1.17",
+  "violations": [
+    {
+      "context": {
+        "member": null,
+        "module": "Demo",
+        "namespace": null,
+        "type": null
+      },
+      "description": "Module-level shared value 'counter' is mutable or globally visible.",
+      "endColumn": 24,
+      "endLine": 2,
+      "file": "src/Good.fs",
+      "helpUri": "https://github.com/quality-gates/messfsharp#globalvariable",
+      "priority": 3,
+      "rule": "GlobalVariable",
+      "ruleset": "design",
+      "startColumn": 1,
+      "startLine": 2
+    }
+  ]
+}
+exit=0
+
+$ dotnet ../../src/MessFSharp/bin/Release/net10.0/messfsharp.dll src/Suppressed.fs json design --only GlobalVariable
+{
+  "errors": [],
+  "tool": "messfsharp",
+  "version": "0.1.17",
+  "violations": []
+}
+exit=0
+
+$ dotnet ../../src/MessFSharp/bin/Release/net10.0/messfsharp.dll src/Suppressed.fs json design --only GlobalVariable --strict
+{
+  "errors": [],
+  "tool": "messfsharp",
+  "version": "0.1.17",
+  "violations": [
+    {
+      "context": {
+        "member": null,
+        "module": "Demo",
+        "namespace": null,
+        "type": null
+      },
+      "description": "Module-level shared value 'counter' is mutable or globally visible.",
+      "endColumn": 24,
+      "endLine": 4,
+      "file": "src/Suppressed.fs",
+      "helpUri": "https://github.com/quality-gates/messfsharp#globalvariable",
+      "priority": 3,
+      "rule": "GlobalVariable",
+      "ruleset": "design",
+      "startColumn": 1,
+      "startLine": 4
+    }
+  ]
+}
+exit=2
+
+$ dotnet ../../src/MessFSharp/bin/Release/net10.0/messfsharp.dll src/Names.fs json team.xml
+{
+  "errors": [],
+  "tool": "messfsharp",
+  "version": "0.1.17",
+  "violations": [
+    {
+      "context": {
+        "member": null,
+        "module": "Demo",
+        "namespace": null,
+        "type": null
+      },
+      "description": "Variable name 'extraordinaryLongVariableName' exceeds maximum length 8.",
+      "endColumn": 1,
+      "endLine": 3,
+      "file": "src/Names.fs",
+      "helpUri": "https://github.com/quality-gates/messfsharp#longvariable",
+      "priority": 3,
+      "rule": "LongVariable",
+      "ruleset": "team",
+      "startColumn": 1,
+      "startLine": 2
+    }
+  ]
+}
+exit=2
+
+$ dotnet ../../src/MessFSharp/bin/Release/net10.0/messfsharp.dll src/Names.fs json team.xml
+{
+  "errors": [],
+  "tool": "messfsharp",
+  "version": "0.1.17",
+  "violations": []
+}
+exit=0

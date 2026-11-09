@@ -56,7 +56,7 @@ messfsharp src json fsharp,codesize,design --only CyclomaticComplexity
 
 ## Exploratory testing
 
-The [CLI configuration and CI report](exploratory-testing/2026-11-09-messfsharp.md) records a pass over report output, suppression, and custom rulesets.
+The [CLI configuration and CI report](exploratory-testing/2026-11-09-messfsharp.md) records a pass over report output, suppression, and custom rulesets. The [owned replay](exploratory-testing/2026-11-09-owned-replay.md) repeats those journeys with registered process cleanup.
 
 ## Exit codes
 
