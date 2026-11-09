@@ -1,0 +1,37 @@
+registered policy: all child process groups; no browsers, containers, images, volumes or listening ports
+register intent=sdk-download owner=249440 teardown=kill-process-group
+registered label=sdk-download pid=249441 pgid=249441
+dotnet-install: .NET Core SDK with version '10.0.302' is already installed.
+completed label=sdk-download exit=0
+verify group=249441 live_members=[]
+register intent=locked-restore owner=249440 teardown=kill-process-group
+registered label=locked-restore pid=249514 pgid=249514
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+completed label=locked-restore exit=0
+verify group=249514 live_members=[]
+register intent=release-build owner=249440 teardown=kill-process-group
+registered label=release-build pid=249558 pgid=249558
+  MessFSharp -> /home/ubuntu/Code/pstack/quality-gates/messfsharp-explore-20261109-replay/src/MessFSharp/bin/Release/net10.0/messfsharp.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:17.87
+completed label=release-build exit=0
+verify group=249558 live_members=[]
+register intent=journey-replay-one owner=249440 teardown=kill-process-group
+registered label=journey-replay-one pid=249609 pgid=249609
+completed label=journey-replay-one exit=0
+verify group=249609 live_members=[]
+register intent=journey-replay-two owner=249440 teardown=kill-process-group
+registered label=journey-replay-two pid=249707 pgid=249707
+completed label=journey-replay-two exit=0
+verify group=249707 live_members=[]
+register intent=compare-persisted-reports owner=249440 teardown=kill-process-group
+registered label=compare-persisted-reports pid=249802 pgid=249802
+completed label=compare-persisted-reports exit=0
+verify group=249802 live_members=[]
+owner exit cleanup
+owner cleanup complete

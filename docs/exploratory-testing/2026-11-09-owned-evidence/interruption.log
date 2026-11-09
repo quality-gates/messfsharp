@@ -1,0 +1,8 @@
+registered policy: all child process groups; no browsers, containers, images, volumes or listening ports
+register intent=interrupt-test owner=249438 teardown=kill-process-group
+inject SIGTERM between launch and registration
+registered label=interrupt-test pid=249439 pgid=249439
+owner exit cleanup
+teardown group=249439 members=[249439] signal=TERM
+verify group=249439 live_members=[]
+owner cleanup complete
