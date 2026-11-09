@@ -30,4 +30,4 @@ No product bugs were confirmed in these journeys. No new issue was filed. Existi
 
 The full `dotnet test tests/MessFSharp.Tests/MessFSharp.Tests.fsproj -c Release --no-restore` run passed 248 tests and failed the timing assertion `reference resolution scales to hundreds of declarations sharing one name`. An isolated rerun failed the same assertion. This is an unresolved test-environment or performance observation, not a confirmed CLI defect. No baseline comparison or performance investigation was performed.
 
-The pass used small synthetic files and JSON output. Other formats, large projects, `.fsi` files, and actual CI hosting were not exercised. No server, browser, container, image, volume, or listening port was started.
+The pass used small synthetic files and JSON output. Other formats, large projects, `.fsi` files, and actual CI hosting were not exercised. No application server, browser, container, image, volume, or listening port was started. The .NET build started an MSBuild worker, which was stopped with `dotnet build-server shutdown`.
