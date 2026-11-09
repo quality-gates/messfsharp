@@ -1,0 +1,6 @@
+baseline exit=2
+ignored exit=0
+reports identical
+error exit=1
+ignored error exit=0
+error reports identical

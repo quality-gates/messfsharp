@@ -54,6 +54,10 @@ messfsharp src json fsharp,codesize,design --only CyclomaticComplexity
 `--help`, `-h`, and `help` print usage. `--version` prints
 `messfsharp <version>`.
 
+## Exploratory testing
+
+The [CLI configuration and CI report](exploratory-testing/2026-11-09-messfsharp.md) records a pass over report output, suppression, and custom rulesets.
+
 ## Exit codes
 
 | Code | Meaning |
