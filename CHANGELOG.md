@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.18
+
+- Verify conditional compilation diagnostics (#229).
+- Correct the documented strict suppression behavior (#228).
+
 ## 0.1.17
 
 - Track storage identity and deferred effects in explicitness analysis (#225).
