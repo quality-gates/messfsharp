@@ -2,6 +2,7 @@ namespace MessFSharp
 
 open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Diagnostics
+open FSharp.Compiler.Syntax
 open FSharp.Compiler.Text
 open Domain
 
@@ -15,6 +16,26 @@ module Parsing =
           StartColumn = max 1 (diagnostic.StartColumn + 1)
           EndLine = max 1 diagnostic.EndLine
           EndColumn = max 1 (diagnostic.EndColumn + 1) }
+
+    let private invalidScriptModules (source: SourceFile) tree =
+        match source.Kind, tree with
+        | Script, ParsedInput.ImplFile(ParsedImplFileInput(contents = modules)) ->
+            modules
+            |> List.choose (fun (SynModuleOrNamespace(kind = kind; range = range)) ->
+                if kind = SynModuleOrNamespaceKind.NamedModule then
+                    Some
+                        { File = Some source.FullPath
+                          Location =
+                            Some
+                                { File = source.FullPath
+                                  StartLine = range.StartLine
+                                  StartColumn = range.StartColumn + 1
+                                  EndLine = range.StartLine
+                                  EndColumn = range.StartColumn + 7 }
+                          Message = "A top-level module in a script must use '=' and an indented body." }
+                else
+                    None)
+        | _ -> []
 
     let parse (source: SourceFile) =
         try
@@ -46,7 +67,9 @@ module Parsing =
                 else
                     Error errors
             else
-                Ok results.ParseTree
+                match invalidScriptModules source results.ParseTree with
+                | [] -> Ok results.ParseTree
+                | errors -> Error errors
         with ex ->
             Error
                 [ { File = Some source.FullPath
