@@ -4320,6 +4320,66 @@ type Leaf() =
         Assert.DoesNotContain(actual, fun (_, _, description) -> description.Contains("'factory'"))
 
     [<Fact>]
+    let ``explicitness preserves callable contexts through convergent aliases`` () =
+        let result =
+            Engine.run "0.1.0" (options [ fixture "issue-226-callable-context.fs" ] [ "explicitness" ] Json)
+
+        Assert.Empty(result.Report.Errors)
+
+        let actual =
+            result.Report.Violations
+            |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine)
+            |> List.sort
+
+        let expected =
+            [ "ImplicitOutput", 3
+              "UnknownEffect", 6
+              "ImplicitOutput", 11
+              "ImplicitOutput", 15
+              "ImplicitOutput", 27
+              "ImplicitOutput", 31
+              "UnknownEffect", 31
+              "ImplicitOutput", 32
+              "ImplicitOutput", 40
+              "UnknownEffect", 54 ]
+            |> List.sort
+
+        Assert.Equal<(string * int) list>(expected, actual)
+
+    [<Fact>]
+    let ``depth limited alias resolution does not poison a later shallow resolution`` () =
+        let directory = Directory.CreateTempSubdirectory("messfsharp-issue-226-")
+
+        try
+            let path = Path.Combine(directory.FullName, "depth.fs")
+            let aliases = [ for i in 1..139 -> sprintf "    let f%d = f%d" i (i - 1) ]
+
+            let source =
+                [ "module DepthLimit"
+                  "let noisy x = printfn \"%d\" x"
+                  "let probe () ="
+                  "    let f0 = noisy" ]
+                @ aliases
+                @ [ "    f139 1"; "    f2 1" ]
+                |> String.concat "\n"
+
+            File.WriteAllText(path, source)
+            let result = Engine.run "0.1.0" (options [ path ] [ "explicitness" ] Json)
+            Assert.Empty(result.Report.Errors)
+
+            let actual =
+                result.Report.Violations
+                |> List.map (fun violation -> violation.RuleName, violation.Location.StartLine)
+                |> List.sort
+
+            Assert.Equal<(string * int) list>(
+                [ "ImplicitOutput", 2; "ImplicitOutput", 145; "UnknownEffect", 144 ],
+                actual
+            )
+        finally
+            directory.Delete(true)
+
+    [<Fact>]
     let ``explicitness instantiates callback argument mutation through helper calls`` () =
         let result =
             Engine.run "0.1.0" (options [ fixture "normand-callback-transfer.fs" ] [ "explicitness" ] Json)

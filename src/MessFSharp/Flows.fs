@@ -54,6 +54,19 @@ module Flows =
           Elements: ValueSummary list
           Complete: bool }
 
+    type private ValueIdentity = OwnerKey * ValueExpr * (int * int)
+
+    type private ValueCacheEntry =
+        { Summary: ValueSummary
+          Dependencies: Set<ValueIdentity>
+          Height: int }
+
+    type private ValueEvaluation =
+        { BaseDepth: int
+          mutable Dependencies: Set<ValueIdentity>
+          mutable Height: int
+          mutable Complete: bool }
+
     type private CallArgument =
         | ArgumentPath of string list
         | ArgumentCallable of Owner
@@ -2136,12 +2149,31 @@ module Flows =
         let positionRange fileName (line, column) =
             Range.mkRange fileName (Position.mkPos line column) (Position.mkPos line (column + 1))
 
-        let rec valueOf visited context current expression accessRange =
-            let identity = current.Key, expression, key accessRange
+        // A cached result is safe only if its entire completed traversal avoids
+        // the caller's active path and still fits within the recursion limit.
+        let valueCache = System.Collections.Generic.Dictionary<_, ValueCacheEntry>()
+        let mutable evaluations: ValueEvaluation list = []
 
-            if Set.contains identity visited || visited.Count >= 128 then
-                unknownValue
-            else
+        let rec valueOf
+            (visited: Set<ValueIdentity>)
+            context
+            (current: Owner)
+            expression
+            (accessRange: range)
+            : ValueSummary =
+            let identity = current.Key, expression, key accessRange
+            let cacheKey = current, expression, accessRange, context
+
+            let record dependencies height complete =
+                match evaluations with
+                | evaluation :: _ ->
+                    evaluation.Dependencies <- Set.union evaluation.Dependencies dependencies
+                    evaluation.Height <- max evaluation.Height (visited.Count - evaluation.BaseDepth + height)
+                    evaluation.Complete <- evaluation.Complete && complete
+                | [] -> ()
+
+            let computeValue () : ValueSummary =
+                let identity = current.Key, expression, key accessRange
                 let visited = Set.add identity visited
 
                 let evaluate owner expression expressionRange =
@@ -2344,6 +2376,38 @@ module Flows =
                                     Complete = available.Complete && (results |> List.forall _.Complete) }
 
                     apply 0 targets arguments
+
+            if Set.contains identity visited || visited.Count >= 128 then
+                record (Set.singleton identity) 1 false
+                unknownValue
+            else
+                match valueCache.TryGetValue cacheKey with
+                | true, entry when
+                    Set.isEmpty (Set.intersect visited entry.Dependencies)
+                    && visited.Count + entry.Height <= 128
+                    ->
+                    record entry.Dependencies entry.Height true
+                    entry.Summary
+                | _ ->
+                    let evaluation =
+                        { BaseDepth = visited.Count
+                          Dependencies = Set.singleton identity
+                          Height = 1
+                          Complete = true }
+
+                    evaluations <- evaluation :: evaluations
+                    let result = computeValue ()
+                    evaluations <- List.tail evaluations
+                    let complete = evaluation.Complete && result.Complete
+                    record evaluation.Dependencies evaluation.Height complete
+
+                    if complete then
+                        valueCache[cacheKey] <-
+                            { Summary = result
+                              Dependencies = evaluation.Dependencies
+                              Height = evaluation.Height }
+
+                    result
 
         let storageReturns =
             facts
