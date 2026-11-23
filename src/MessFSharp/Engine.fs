@@ -29,13 +29,6 @@ module Engine =
             declaration.SuppressedRules
             |> Set.exists (fun rule -> String.Equals(rule, violation.RuleName, StringComparison.OrdinalIgnoreCase)))
 
-    let private runRules (file: AnalyzedFile) (selections: RuleSelection list) =
-        selections
-        |> List.collect (fun selection ->
-            match Rules.byName |> Map.tryFind (selection.Name.ToLowerInvariant()) with
-            | Some implementation -> implementation.Check file selection
-            | None -> [])
-
     let private violationKey (violation: Violation) =
         violation.Location.File,
         violation.Location.StartLine,
@@ -51,7 +44,7 @@ module Engine =
         else
             violations |> List.filter (isSuppressed file >> not)
 
-    let private sortViolations violations =
+    let private sortViolations (violations: Violation list) =
         violations
         |> List.sortWith (fun left right ->
             let fileComparison =
@@ -110,7 +103,7 @@ module Engine =
         | Ok parsedInput ->
             let file = Model.analyze source parsedInput
 
-            runRules file selections
+            FindingAttribution.runRules file selections
             |> applySuppression strict file
             |> distinctViolations
             |> Ok

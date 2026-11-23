@@ -57,6 +57,7 @@
     <Compile Include="CheckstyleReporter.fs" />
     <Compile Include="SarifReporter.fs" />
     <Compile Include="Reporter.fs" />
+    <Compile Include="FindingAttribution.fs" />
     <Compile Include="Engine.fs" />
     <Compile Include="Cli.fs" />
     <Compile Include="Program.fs" />

@@ -23,12 +23,9 @@ module Rules =
 
         count
 
-    let private ruleUri (name: string) =
-        Some(sprintf "https://github.com/quality-gates/messfsharp#%s" (name.ToLowerInvariant()))
-
-    let private property (selection: RuleSelection) (name: string) (fallback: int) =
+    let private property (properties: Map<string, string>) (name: string) (fallback: int) =
         let configured =
-            selection.Properties
+            properties
             |> Seq.tryPick (fun item ->
                 if String.Equals(item.Key, name, StringComparison.OrdinalIgnoreCase) then
                     Some item.Value
@@ -42,8 +39,8 @@ module Rules =
             | _ -> fallback
         | None -> fallback
 
-    let private propertyText (selection: RuleSelection) (name: string) (fallback: string) =
-        selection.Properties
+    let private propertyText (properties: Map<string, string>) (name: string) (fallback: string) =
+        properties
         |> Seq.tryPick (fun item ->
             if String.Equals(item.Key, name, StringComparison.OrdinalIgnoreCase) then
                 Some item.Value
@@ -51,42 +48,7 @@ module Rules =
                 None)
         |> Option.defaultValue fallback
 
-    let private context (file: AnalyzedFile) (location: SourceLocation) =
-        let enclosing = enclosingDeclarations file.Declarations location.StartLine
-
-        let innermost predicate =
-            enclosing
-            |> List.filter predicate
-            |> List.sortByDescending (fun item -> item.Location.StartLine)
-            |> List.tryHead
-            |> Option.map (fun item -> item.Name)
-
-        // A primary constructor has the scope of its type. It is the member only for a violation at its own location.
-        let isPrimaryConstructor (item: Declaration) =
-            item.Kind = Constructor && item.ParentStartLine = Some item.Location.StartLine
-
-        let isMember (item: Declaration) =
-            match item.Kind with
-            | Member
-            | Property -> true
-            | Constructor ->
-                not (isPrimaryConstructor item)
-                || (item.Location.StartLine = location.StartLine
-                    && item.Location.StartColumn = location.StartColumn)
-            | _ -> false
-
-        { Namespace = innermost (fun item -> item.Kind = Namespace)
-          Module = innermost (fun item -> item.Kind = Module)
-          Type = innermost (fun item -> item.Kind = Type)
-          Member = innermost isMember }
-
-    let private violation
-        (file: AnalyzedFile)
-        (selection: RuleSelection)
-        (declaration: Declaration option)
-        (line: int)
-        (description: string)
-        =
+    let private finding (file: AnalyzedFile) (declaration: Declaration option) (line: int) (description: string) =
         let location =
             match declaration with
             | Some item -> item.Location
@@ -104,12 +66,8 @@ module Rules =
                          |> Option.defaultValue 1) }
 
         { Location = location
-          RuleName = selection.Name
-          RulesetName = selection.RulesetName
-          Priority = selection.Priority
           Description = description
-          Context = context file location
-          HelpUri = ruleUri selection.Name }
+          Declaration = declaration }
 
     let private allDeclarations (file: AnalyzedFile) (predicate: Declaration -> bool) =
         file.Declarations |> List.filter predicate
@@ -293,9 +251,9 @@ module Rules =
         |> Array.filter (String.IsNullOrWhiteSpace >> not)
         |> Array.toList
 
-    let private adjustedName (selection: RuleSelection) (name: string) =
-        let prefixes = propertyText selection "subtract-prefixes" "" |> splitPropertyValues
-        let suffixes = propertyText selection "subtract-suffixes" "" |> splitPropertyValues
+    let private adjustedName (properties: Map<string, string>) (name: string) =
+        let prefixes = propertyText properties "subtract-prefixes" "" |> splitPropertyValues
+        let suffixes = propertyText properties "subtract-suffixes" "" |> splitPropertyValues
 
         let withoutPrefix =
             prefixes
@@ -310,11 +268,11 @@ module Rules =
         |> Option.map (fun suffix -> withoutPrefix.Substring(0, withoutPrefix.Length - suffix.Length))
         |> Option.defaultValue withoutPrefix
 
-    let private ignoredVariableName (selection: RuleSelection) (name: string) =
+    let private ignoredVariableName (properties: Map<string, string>) (name: string) =
         let pattern =
-            propertyText selection "ignorepattern" (propertyText selection "ignore-pattern" "^(x|xs|f|g|_|_.*)$")
+            propertyText properties "ignorepattern" (propertyText properties "ignore-pattern" "^(x|xs|f|g|_|_.*)$")
 
-        let exceptions = propertyText selection "exceptions" "" |> splitPropertyValues
+        let exceptions = propertyText properties "exceptions" "" |> splitPropertyValues
 
         (try
             Regex.IsMatch(name, pattern)
@@ -937,13 +895,13 @@ module Rules =
         |> Array.length
 
     let private configuredLineCount
-        (selection: RuleSelection)
+        (properties: Map<string, string>)
         (nonCodeLines: Set<int>)
         (declaration: Declaration)
         rawCount
         =
         let ignoreWhitespace =
-            propertyText selection "ignore-whitespace" "true"
+            propertyText properties "ignore-whitespace" "true"
             |> fun value -> value.Equals("true", StringComparison.OrdinalIgnoreCase)
 
         if ignoreWhitespace then
@@ -978,16 +936,15 @@ module Rules =
     let private defsFor
         (predicate: Declaration -> bool)
         (file: AnalyzedFile)
-        (selection: RuleSelection)
+        (properties: Map<string, string>)
         (description: Declaration -> string option)
         =
         allDeclarations file predicate
         |> List.choose (fun declaration ->
             if description declaration |> Option.isSome then
                 Some(
-                    violation
+                    finding
                         file
-                        selection
                         (Some declaration)
                         declaration.Location.StartLine
                         (description declaration |> Option.get)
@@ -1001,13 +958,13 @@ module Rules =
           DefaultProperties = Map.ofList [ "maximum", "10"; "reportLevel", "10" ]
           Description = "Reports functions and members whose cyclomatic complexity exceeds the configured maximum."
           Check =
-            fun file selection ->
-                let maximum = property selection "maximum" 10
+            fun file properties ->
+                let maximum = property properties "maximum" 10
 
                 defsFor
                     (fun declaration -> declaration.Kind = Function || declaration.Kind = Member)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         let value = metric file.ComplexityByDeclaration declaration
 
@@ -1022,13 +979,13 @@ module Rules =
           DefaultProperties = Map.ofList [ "maximum", "200"; "reportLevel", "200" ]
           Description = "Reports functions and members with too many possible execution paths."
           Check =
-            fun file selection ->
-                let maximum = property selection "maximum" 200
+            fun file properties ->
+                let maximum = property properties "maximum" 200
 
                 defsFor
                     (fun declaration -> declaration.Kind = Function || declaration.Kind = Member)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         let value = metric file.NPathByDeclaration declaration
 
@@ -1043,18 +1000,18 @@ module Rules =
           DefaultProperties = Map.ofList [ "minimum", "100"; "ignore-whitespace", "true" ]
           Description = "Reports functions and members longer than the configured line threshold."
           Check =
-            fun file selection ->
-                let minimum = property selection "minimum" 100
+            fun file properties ->
+                let minimum = property properties "minimum" 100
                 let nonCodeLines = NonCodeText.lines file.Source
 
                 defsFor
                     (fun declaration -> declaration.Kind = Function || declaration.Kind = Member)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         let value =
                             configuredLineCount
-                                selection
+                                properties
                                 nonCodeLines
                                 declaration
                                 (metric file.LineCountByDeclaration declaration)
@@ -1070,8 +1027,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "minimum", "1000"; "ignore-whitespace", "true" ]
           Description = "Reports type declarations longer than the configured line threshold."
           Check =
-            fun file selection ->
-                let minimum = property selection "minimum" 1000
+            fun file properties ->
+                let minimum = property properties "minimum" 1000
                 let nonCodeLines = NonCodeText.lines file.Source
 
                 defsFor
@@ -1079,11 +1036,11 @@ module Rules =
                         (declaration.Kind = Type && declaration.IsClassLike)
                         || declaration.Kind = Module)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         let value =
                             configuredLineCount
-                                selection
+                                properties
                                 nonCodeLines
                                 declaration
                                 (metric file.LineCountByDeclaration declaration)
@@ -1099,8 +1056,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "maximum", "10"; "reportLevel", "10" ]
           Description = "Reports functions and members with too many logical parameters."
           Check =
-            fun file selection ->
-                let maximum = property selection "maximum" 10
+            fun file properties ->
+                let maximum = property properties "maximum" 10
 
                 defsFor
                     (fun declaration ->
@@ -1108,7 +1065,7 @@ module Rules =
                         || declaration.Kind = Member
                         || declaration.Kind = Constructor)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         if declaration.ParameterCount > maximum then
                             Some(sprintf "Parameter count %d exceeds maximum %d." declaration.ParameterCount maximum)
@@ -1121,8 +1078,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "maximum", "45"; "reportLevel", "45" ]
           Description = "Reports type-like units with too many public declarations."
           Check =
-            fun file selection ->
-                let maximum = property selection "maximum" 45
+            fun file properties ->
+                let maximum = property properties "maximum" 45
 
                 file.Declarations
                 |> List.filter (fun declaration -> declaration.Kind = Type || declaration.Kind = Module)
@@ -1139,9 +1096,8 @@ module Rules =
 
                     if count > maximum then
                         Some(
-                            violation
+                            finding
                                 file
-                                selection
                                 (Some declaration)
                                 declaration.Location.StartLine
                                 (sprintf "Public declaration count %d exceeds maximum %d." count maximum)
@@ -1155,8 +1111,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "maxfields", "15"; "reportLevel", "15" ]
           Description = "Reports data or class types with too many declared fields."
           Check =
-            fun file selection ->
-                let maximum = property selection "maxfields" 15
+            fun file properties ->
+                let maximum = property properties "maxfields" 15
 
                 file.Declarations
                 |> List.filter (fun declaration -> declaration.Kind = Type)
@@ -1168,9 +1124,8 @@ module Rules =
 
                     if count > maximum then
                         Some(
-                            violation
+                            finding
                                 file
-                                selection
                                 (Some declaration)
                                 declaration.Location.StartLine
                                 (sprintf "Field count %d exceeds maximum %d." count maximum)
@@ -1184,8 +1139,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "maxmethods", "25"; "reportLevel", "25" ]
           Description = "Reports type-like units with too many methods or functions."
           Check =
-            fun file selection ->
-                let maximum = property selection "maxmethods" 25
+            fun file properties ->
+                let maximum = property properties "maxmethods" 25
 
                 file.Declarations
                 |> List.filter (fun declaration -> declaration.Kind = Type || declaration.Kind = Module)
@@ -1199,9 +1154,8 @@ module Rules =
 
                     if count > maximum then
                         Some(
-                            violation
+                            finding
                                 file
-                                selection
                                 (Some declaration)
                                 declaration.Location.StartLine
                                 (sprintf "Method count %d exceeds maximum %d." count maximum)
@@ -1215,8 +1169,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "maxmethods", "10"; "reportLevel", "10" ]
           Description = "Reports type-like units with too many public methods."
           Check =
-            fun file selection ->
-                let maximum = property selection "maxmethods" 10
+            fun file properties ->
+                let maximum = property properties "maxmethods" 10
 
                 file.Declarations
                 |> List.filter (fun declaration -> declaration.Kind = Type || declaration.Kind = Module)
@@ -1231,9 +1185,8 @@ module Rules =
 
                     if count > maximum then
                         Some(
-                            violation
+                            finding
                                 file
-                                selection
                                 (Some declaration)
                                 declaration.Location.StartLine
                                 (sprintf "Public method count %d exceeds maximum %d." count maximum)
@@ -1247,8 +1200,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "maximum", "50"; "reportLevel", "50" ]
           Description = "Reports type-like units whose aggregate complexity exceeds the configured maximum."
           Check =
-            fun file selection ->
-                let maximum = property selection "maximum" 50
+            fun file properties ->
+                let maximum = property properties "maximum" 50
 
                 file.Declarations
                 |> List.filter (fun declaration ->
@@ -1263,9 +1216,8 @@ module Rules =
 
                     if value > maximum then
                         Some(
-                            violation
+                            finding
                                 file
-                                selection
                                 (Some declaration)
                                 declaration.Location.StartLine
                                 (sprintf "Aggregate type or module complexity %d exceeds maximum %d." value maximum)
@@ -1279,8 +1231,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "minimum", "3" ]
           Description = "Reports type names shorter than the configured minimum."
           Check =
-            fun file selection ->
-                let minimum = property selection "minimum" 3
+            fun file properties ->
+                let minimum = property properties "minimum" 3
 
                 defsFor
                     (fun declaration ->
@@ -1290,7 +1242,7 @@ module Rules =
                          || declaration.Kind = UnionCase)
                         && isNameLike declaration.Name)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         if declaration.Name.Length < minimum then
                             Some(
@@ -1308,8 +1260,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "maximum", "40" ]
           Description = "Reports type names longer than the configured maximum."
           Check =
-            fun file selection ->
-                let maximum = property selection "maximum" 40
+            fun file properties ->
+                let maximum = property properties "maximum" 40
 
                 defsFor
                     (fun declaration ->
@@ -1319,7 +1271,7 @@ module Rules =
                          || declaration.Kind = UnionCase)
                         && isNameLike declaration.Name)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         if declaration.Name.Length > maximum then
                             Some(
@@ -1337,8 +1289,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "minimum", "3"; "ignorepattern", "^(x|xs|f|g|_|_.*)$" ]
           Description = "Reports variable and parameter names shorter than the configured minimum."
           Check =
-            fun file selection ->
-                let minimum = property selection "minimum" 3
+            fun file properties ->
+                let minimum = property properties "minimum" 3
 
                 defsFor
                     (fun declaration ->
@@ -1347,11 +1299,11 @@ module Rules =
                          || declaration.Kind = Field)
                         && isNameLike declaration.Name)
                     file
-                    selection
+                    properties
                     (fun declaration ->
-                        let name = adjustedName selection declaration.Name
+                        let name = adjustedName properties declaration.Name
 
-                        if name.Length < minimum && not (ignoredVariableName selection declaration.Name) then
+                        if name.Length < minimum && not (ignoredVariableName properties declaration.Name) then
                             Some(
                                 sprintf
                                     "Variable name '%s' is shorter than minimum length %d."
@@ -1367,8 +1319,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "maximum", "20"; "ignorepattern", "^(x|xs|f|g|_|_.*)$" ]
           Description = "Reports variable and parameter names longer than the configured maximum."
           Check =
-            fun file selection ->
-                let maximum = property selection "maximum" 20
+            fun file properties ->
+                let maximum = property properties "maximum" 20
 
                 defsFor
                     (fun declaration ->
@@ -1377,11 +1329,11 @@ module Rules =
                          || declaration.Kind = Field)
                         && isNameLike declaration.Name)
                     file
-                    selection
+                    properties
                     (fun declaration ->
-                        let name = adjustedName selection declaration.Name
+                        let name = adjustedName properties declaration.Name
 
-                        if name.Length > maximum && not (ignoredVariableName selection declaration.Name) then
+                        if name.Length > maximum && not (ignoredVariableName properties declaration.Name) then
                             Some(sprintf "Variable name '%s' exceeds maximum length %d." declaration.Name maximum)
                         else
                             None) }
@@ -1392,8 +1344,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "minimum", "3" ]
           Description = "Reports function and member names shorter than the configured minimum."
           Check =
-            fun file selection ->
-                let minimum = property selection "minimum" 3
+            fun file properties ->
+                let minimum = property properties "minimum" 3
 
                 defsFor
                     (fun declaration ->
@@ -1402,7 +1354,7 @@ module Rules =
                          || declaration.Kind = Property)
                         && isNameLike declaration.Name)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         if
                             declaration.Name.Length < minimum
@@ -1420,8 +1372,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "convention", "PascalCase" ]
           Description = "Reports literal declarations that do not follow the configured F# constant convention."
           Check =
-            fun file selection ->
-                let convention = propertyText selection "convention" "PascalCase"
+            fun file properties ->
+                let convention = propertyText properties "convention" "PascalCase"
 
                 let followsConvention (name: string) =
                     match convention.Trim().ToLowerInvariant() with
@@ -1434,7 +1386,7 @@ module Rules =
                 defsFor
                     (fun declaration -> declaration.IsLiteral && isNameLike declaration.Name)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         if not (followsConvention declaration.Name) then
                             Some(
@@ -1452,9 +1404,9 @@ module Rules =
           DefaultProperties = Map.ofList [ "checkParameterizedMethods", "true" ]
           Description = "Reports boolean members named with a get prefix instead of an is/has prefix."
           Check =
-            fun file selection ->
+            fun file properties ->
                 let checkParameterized =
-                    propertyText selection "checkParameterizedMethods" "true"
+                    propertyText properties "checkParameterizedMethods" "true"
                     |> fun value -> value.Equals("true", StringComparison.OrdinalIgnoreCase)
 
                 defsFor
@@ -1464,7 +1416,7 @@ module Rules =
                         && declaration.IsBoolean
                         && (checkParameterized || declaration.ParameterCount = 0))
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         Some(sprintf "Boolean member '%s' should use an is/has name instead of get." declaration.Name)) }
 
@@ -1474,11 +1426,11 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports private fields that have no reference in their source scope."
           Check =
-            fun file selection ->
+            fun file properties ->
                 defsFor
                     (fun declaration -> declaration.Kind = Field && declaration.IsPrivate && not declaration.IsIgnored)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         if referenceCount file declaration <= 1 then
                             Some(sprintf "Private field '%s' is never used." declaration.Name)
@@ -1491,7 +1443,7 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports local values and functions that are never referenced in their lexical scope."
           Check =
-            fun file selection ->
+            fun file properties ->
                 defsFor
                     (fun declaration ->
                         ((declaration.Kind = Value && not declaration.IsModuleLevel)
@@ -1499,7 +1451,7 @@ module Rules =
                         && not declaration.IsIgnored
                         && not declaration.IsCompilerGenerated)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         if referenceCount file declaration <= 1 then
                             Some(sprintf "Local binding '%s' is never used." declaration.Name)
@@ -1512,7 +1464,7 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports private members that are never referenced."
           Check =
-            fun file selection ->
+            fun file properties ->
                 defsFor
                     (fun declaration ->
                         (declaration.Kind = Member || declaration.Kind = Property)
@@ -1523,7 +1475,7 @@ module Rules =
                             && declaration.IsModuleLevel
                             && not declaration.IsIgnored))
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         if referenceCount file declaration <= 1 then
                             Some(sprintf "Private method or function '%s' is never used." declaration.Name)
@@ -1536,11 +1488,11 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports formal parameters that are not referenced in the complete function scope."
           Check =
-            fun file selection ->
+            fun file properties ->
                 defsFor
                     (fun declaration -> declaration.Kind = Parameter && not declaration.IsIgnored)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         if referenceCount file declaration <= 1 then
                             Some(sprintf "Formal parameter '%s' is never used." declaration.Name)
@@ -1553,7 +1505,7 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports boolean parameters used as behaviour flags."
           Check =
-            fun file selection ->
+            fun file properties ->
                 let isFlagName (name: string) =
                     name.IndexOf("flag", StringComparison.OrdinalIgnoreCase) >= 0
                     || name.IndexOf("enable", StringComparison.OrdinalIgnoreCase) >= 0
@@ -1579,7 +1531,7 @@ module Rules =
                                 |> Option.exists (fun candidate ->
                                     bodyHasParameterInBranchCondition file candidate declaration.Name))))
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         Some(sprintf "Boolean parameter '%s' controls multiple behaviours." declaration.Name)) }
 
@@ -1589,15 +1541,14 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports only flattenable else branches after unconditional termination."
           Check =
-            fun file selection ->
+            fun file properties ->
                 file.Tokens
                 |> Array.filter (fun token -> token.Text = "else")
                 |> Array.choose (fun token ->
                     if isElseFlattenable file token.Line token.Column then
                         Some(
-                            violation
+                            finding
                                 file
-                                selection
                                 None
                                 token.Line
                                 "An else branch follows an unconditional terminating expression and can be flattened."
@@ -1671,7 +1622,7 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports explicit static .NET access when this stricter policy is selected."
           Check =
-            fun file selection ->
+            fun file properties ->
                 let tokens = file.Tokens
 
                 // A qualified System./Microsoft. prefix is only static access in an expression
@@ -1737,12 +1688,7 @@ module Rules =
                         && not inType
                     then
                         Some(
-                            violation
-                                file
-                                selection
-                                None
-                                token.Line
-                                "Explicit static access is enabled by an opinionated policy."
+                            finding file None token.Line "Explicit static access is enabled by an opinionated policy."
                         )
                     else
                         None)
@@ -1763,18 +1709,11 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports duplicate statically knowable keys in map or dictionary construction."
           Check =
-            fun file selection ->
+            fun file properties ->
                 mapConstructions file
                 |> List.choose (fun (lineNumber, keys) ->
                     if keys.Length <> (keys |> List.distinct |> List.length) then
-                        Some(
-                            violation
-                                file
-                                selection
-                                None
-                                lineNumber
-                                "A map or dictionary construction contains a duplicate key."
-                        )
+                        Some(finding file None lineNumber "A map or dictionary construction contains a duplicate key.")
                     else
                         None) }
 
@@ -1784,7 +1723,7 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports process-exit expressions selected by the design policy."
           Check =
-            fun file selection ->
+            fun file properties ->
                 let tokens = file.Tokens
 
                 let tokenIsAt offset text =
@@ -1826,14 +1765,7 @@ module Rules =
                         isEnvironmentExit || isSystemEnvironmentExit
 
                     if isExitCall || isEnvironmentExitCall then
-                        Some(
-                            violation
-                                file
-                                selection
-                                None
-                                token.Line
-                                "Process exit is embedded in an analyzable expression."
-                        )
+                        Some(finding file None token.Line "Process exit is embedded in an analyzable expression.")
                     else
                         None)
                 |> Array.toList }
@@ -1851,10 +1783,10 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports collection-count expressions embedded in loops."
           Check =
-            fun file selection ->
+            fun file properties ->
                 linesInsideLoops file
                 |> List.map (fun lineNumber ->
-                    violation file selection None lineNumber "Collection count is evaluated inside a loop.") }
+                    finding file None lineNumber "Collection count is evaluated inside a loop.") }
 
     let developmentCodeFragment =
         { Name = "DevelopmentCodeFragment"
@@ -1862,9 +1794,9 @@ module Rules =
           DefaultProperties = Map.ofList [ "unwanted-functions", "TODO,FIXME,HACK,Debug.Assert" ]
           Description = "Reports explicit development markers and debugging fragments."
           Check =
-            fun file selection ->
+            fun file properties ->
                 let unwanted =
-                    propertyText selection "unwanted-functions" "TODO,FIXME,HACK,Debug.Assert"
+                    propertyText properties "unwanted-functions" "TODO,FIXME,HACK,Debug.Assert"
 
                 let patterns =
                     unwanted.Split(',', StringSplitOptions.RemoveEmptyEntries)
@@ -1880,14 +1812,7 @@ module Rules =
                 |> Array.mapi (fun index line -> index + 1, line)
                 |> Array.choose (fun (lineNumber, line) ->
                     if patterns |> Array.exists (fun pattern -> pattern.IsMatch(line)) then
-                        Some(
-                            violation
-                                file
-                                selection
-                                None
-                                lineNumber
-                                "Development-only marker found in production source."
-                        )
+                        Some(finding file None lineNumber "Development-only marker found in production source.")
                     else
                         None)
                 |> Array.toList }
@@ -1898,7 +1823,7 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports exception handlers whose branch does no meaningful work."
           Check =
-            fun file selection ->
+            fun file properties ->
                 let clauseLine (clause: SourceLocation) =
                     let rec findArrow line =
                         if line > clause.EndLine then
@@ -1938,7 +1863,7 @@ module Rules =
                             bodyLines.IsEmpty || bodyLines |> List.forall (fun line -> line = "()")
 
                         if emptyBody then
-                            Some(violation file selection None clause.StartLine "Exception handler is empty.")
+                            Some(finding file None clause.StartLine "Exception handler is empty.")
                         else
                             None
 
@@ -2031,8 +1956,8 @@ module Rules =
           DefaultProperties = Map.ofList [ "maximum", "13" ]
           Description = "Reports type declarations coupled to too many distinct external names."
           Check =
-            fun file selection ->
-                let maximum = property selection "maximum" 13
+            fun file properties ->
+                let maximum = property properties "maximum" 13
 
                 file.Declarations
                 |> List.filter (fun declaration -> declaration.Kind = Type && declaration.IsClassLike)
@@ -2063,9 +1988,8 @@ module Rules =
 
                     if names > maximum then
                         Some(
-                            violation
+                            finding
                                 file
-                                selection
                                 (Some declaration)
                                 declaration.Location.StartLine
                                 (sprintf "Coupling count %d exceeds maximum %d." names maximum)
@@ -2079,9 +2003,9 @@ module Rules =
           DefaultProperties = Map.ofList [ "report-immutable", "false" ]
           Description = "Reports mutable module values and static fields when mutation is observed."
           Check =
-            fun file selection ->
+            fun file properties ->
                 let reportImmutable =
-                    propertyText selection "report-immutable" "false"
+                    propertyText properties "report-immutable" "false"
                     |> fun text -> text.Equals("true", StringComparison.OrdinalIgnoreCase)
 
                 defsFor
@@ -2089,7 +2013,7 @@ module Rules =
                         (declaration.Kind = Value && declaration.IsModuleLevel)
                         || (declaration.Kind = Field && declaration.IsStatic))
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         let mutated = mutationObserved file declaration
 
@@ -2108,7 +2032,7 @@ module Rules =
           DefaultProperties = Map.ofList [ "minimum", "1" ]
           Description = "Reports stateful class-like types whose methods form disconnected cohesion groups."
           Check =
-            fun file selection ->
+            fun file properties ->
                 file.Declarations
                 |> List.filter (fun declaration ->
                     declaration.Kind = Type
@@ -2172,11 +2096,10 @@ module Rules =
                                             cohesionGroup
                                     ))
 
-                        if groups > property selection "minimum" 1 then
+                        if groups > property properties "minimum" 1 then
                             Some(
-                                violation
+                                finding
                                     file
-                                    selection
                                     (Some typeDeclaration)
                                     typeDeclaration.Location.StartLine
                                     (sprintf "Type methods form %d cohesion groups." groups)
@@ -2192,8 +2115,8 @@ module Rules =
           DefaultProperties = Map.empty
           Description = description
           Check =
-            fun file selection ->
-                defsFor predicate file selection (fun declaration ->
+            fun file properties ->
+                defsFor predicate file properties (fun declaration ->
                     if not (declaration.IsIgnored) && startsWithUpper declaration.Name then
                         None
                     elif declaration.IsIgnored then
@@ -2233,11 +2156,11 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports formal parameter names that do not use F# camelCase."
           Check =
-            fun file selection ->
+            fun file properties ->
                 defsFor
                     (fun declaration -> declaration.Kind = Parameter && isNameLike declaration.Name)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         if startsWithLower declaration.Name then
                             None
@@ -2250,21 +2173,21 @@ module Rules =
           DefaultProperties = Map.empty
           Description = "Reports local value names that do not use F# camelCase."
           Check =
-            fun file selection ->
+            fun file properties ->
                 defsFor
                     (fun declaration ->
                         (declaration.Kind = Value || declaration.Kind = Function)
                         && not declaration.IsLiteral
                         && isNameLike declaration.Name)
                     file
-                    selection
+                    properties
                     (fun declaration ->
                         if startsWithLower declaration.Name then
                             None
                         else
                             Some(sprintf "Variable name '%s' should use camelCase." declaration.Name)) }
 
-    let private flowDescription (flow: ImplicitFlow) =
+    let flowDescription (flow: ImplicitFlow) =
         let action =
             match flow.Source, flow.Direction with
             | SharedState, InputFlow -> "reads mutable shared value"
@@ -2294,21 +2217,13 @@ module Rules =
           DefaultProperties = Map.empty
           Description = description
           Check =
-            fun file selection ->
+            fun file properties ->
                 file.ImplicitFlows.Value
                 |> List.filter (fun flow -> flow.Direction = direction && (flow.Source = TypeState) = typeState)
                 |> List.map (fun flow ->
-                    let flowContext =
-                        { context file flow.Location with
-                            Member = Some flow.Owner }
-
                     { Location = flow.Location
-                      RuleName = selection.Name
-                      RulesetName = selection.RulesetName
-                      Priority = selection.Priority
                       Description = flowDescription flow
-                      Context = flowContext
-                      HelpUri = ruleUri selection.Name }) }
+                      Declaration = None }) }
 
     let implicitInput =
         implicitFlowRule
@@ -2344,6 +2259,16 @@ module Rules =
             OutputFlow
             true
             "Reports members that change their own type's data instead of returning values."
+
+    let private flowRules =
+        [ implicitInput
+          implicitOutput
+          unknownEffect
+          implicitClassInput
+          implicitClassOutput ]
+
+    let flowRuleNames =
+        flowRules |> List.map (fun rule -> rule.Name.ToLowerInvariant()) |> Set.ofList
 
     let all =
         [ cyclomaticComplexity
@@ -2384,12 +2309,8 @@ module Rules =
           camelCaseMethodName
           camelCasePropertyName
           camelCaseParameterName
-          camelCaseVariableName
-          implicitInput
-          implicitOutput
-          unknownEffect
-          implicitClassInput
-          implicitClassOutput ]
+          camelCaseVariableName ]
+        @ flowRules
 
     let byName =
         all
