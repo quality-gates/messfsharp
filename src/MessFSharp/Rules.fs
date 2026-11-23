@@ -2260,14 +2260,15 @@ module Rules =
             true
             "Reports members that change their own type's data instead of returning values."
 
-    let flowRuleNames =
+    let private flowRules =
         [ implicitInput
           implicitOutput
           unknownEffect
           implicitClassInput
           implicitClassOutput ]
-        |> List.map (fun rule -> rule.Name.ToLowerInvariant())
-        |> Set.ofList
+
+    let flowRuleNames =
+        flowRules |> List.map (fun rule -> rule.Name.ToLowerInvariant()) |> Set.ofList
 
     let all =
         [ cyclomaticComplexity
@@ -2308,12 +2309,8 @@ module Rules =
           camelCaseMethodName
           camelCasePropertyName
           camelCaseParameterName
-          camelCaseVariableName
-          implicitInput
-          implicitOutput
-          unknownEffect
-          implicitClassInput
-          implicitClassOutput ]
+          camelCaseVariableName ]
+        @ flowRules
 
     let byName =
         all
