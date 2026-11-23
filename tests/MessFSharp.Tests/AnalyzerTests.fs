@@ -42,6 +42,38 @@ module AnalyzerTests =
             | None -> failwithf "Unknown rule '%s'." name)
 
     [<Fact>]
+    let ``rule checks return findings using only configured properties`` () =
+        let analyzed = analyzeSource "module Sample\nlet n = 1\n"
+        let rule = Rules.byName["shortvariable"]
+        let findings = rule.Check analyzed (Map.ofList [ "minimum", "3" ])
+
+        Assert.Contains(
+            findings,
+            fun finding -> finding.Declaration |> Option.exists (fun declaration -> declaration.Name = "n")
+        )
+
+    [<Fact>]
+    let ``engine attaches selection metadata and location context to findings`` () =
+        let source =
+            SourceFile.ofText "sample.fs" Implementation "module Sample\nlet n = 1\n"
+
+        let selection =
+            { Name = "ShortVariable"
+              RulesetName = "custom"
+              Priority = 1
+              Properties = Map.ofList [ "minimum", "3" ] }
+
+        match Engine.analyzeSource false [ selection ] source with
+        | Error errors -> failwithf "Expected valid source: %A" errors
+        | Ok violations ->
+            let violation = Assert.Single violations
+            Assert.Equal("ShortVariable", violation.RuleName)
+            Assert.Equal("custom", violation.RulesetName)
+            Assert.Equal(1, violation.Priority)
+            Assert.Equal(Some "https://github.com/quality-gates/messfsharp#shortvariable", violation.HelpUri)
+            Assert.Equal(Some "Sample", violation.Context.Module)
+
+    [<Fact>]
     let ``source file of text normalizes carriage returns into lines`` () =
         let source =
             SourceFile.ofText "sample.fs" Implementation "let a = 1\r\nlet b = 2\rlet c = 3\n"
@@ -199,11 +231,7 @@ let total = first + second
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
 
-        let selection =
-            { Name = "UnusedFormalParameter"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         Assert.Empty(rule.Check analyzed selection)
 
@@ -244,11 +272,7 @@ let readFirst () =
         let unusedLocalRule =
             Rules.all |> List.find (fun item -> item.Name = "UnusedLocalVariable")
 
-        let localSelection =
-            { Name = "UnusedLocalVariable"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let localSelection = Map.empty
 
         let unusedLocalViolations = unusedLocalRule.Check analyzed localSelection
 
@@ -260,22 +284,14 @@ let readFirst () =
         let formalParameterRule =
             Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
 
-        let parameterSelection =
-            { Name = "UnusedFormalParameter"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let parameterSelection = Map.empty
 
         Assert.Empty(formalParameterRule.Check analyzed parameterSelection)
 
         let camelCaseRule =
             Rules.all |> List.find (fun item -> item.Name = "CamelCaseVariableName")
 
-        let camelSelection =
-            { Name = "CamelCaseVariableName"
-              RulesetName = "controversial"
-              Priority = 3
-              Properties = Map.empty }
+        let camelSelection = Map.empty
 
         Assert.DoesNotContain(
             camelCaseRule.Check analyzed camelSelection,
@@ -314,11 +330,7 @@ let readHead () =
         let unusedLocalRule =
             Rules.all |> List.find (fun item -> item.Name = "UnusedLocalVariable")
 
-        let localSelection =
-            { Name = "UnusedLocalVariable"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let localSelection = Map.empty
 
         let unusedLocalViolations = unusedLocalRule.Check analyzed localSelection
 
@@ -330,11 +342,7 @@ let readHead () =
         let formalParameterRule =
             Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
 
-        let parameterSelection =
-            { Name = "UnusedFormalParameter"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let parameterSelection = Map.empty
 
         Assert.Empty(formalParameterRule.Check analyzed parameterSelection)
 
@@ -408,11 +416,7 @@ let (|Even|Odd|) value =
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
 
-        let selection =
-            { Name = "UnusedFormalParameter"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         Assert.Empty(rule.Check analyzed selection)
 
@@ -432,11 +436,7 @@ let run work = async {
             analyzed.Declarations
             |> List.find (fun declaration -> declaration.Name = "result")
 
-        let selection =
-            { Name = "UnusedLocalVariable"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule =
             Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
@@ -462,11 +462,7 @@ let workflow = async {
             analyzed.Declarations
             |> List.find (fun declaration -> declaration.Name = "result")
 
-        let selection =
-            { Name = "UnusedLocalVariable"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule =
             Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
@@ -492,11 +488,7 @@ let shadowed () =
     let x = 1 in let x = x + 1 in x
 """
 
-        let selection =
-            { Name = "UnusedLocalVariable"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule =
             Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
@@ -519,11 +511,7 @@ let workflow = async {
 }
 """
 
-        let selection =
-            { Name = "UnusedLocalVariable"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule =
             Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
@@ -555,11 +543,7 @@ type Service =
         helper 1
 """
 
-        let selection =
-            { Name = "TooManyMethods"
-              RulesetName = "test"
-              Priority = 3
-              Properties = Map.ofList [ "maxmethods", "1" ] }
+        let selection = Map.ofList [ "maxmethods", "1" ]
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "TooManyMethods")
 
@@ -577,11 +561,7 @@ let outer value =
     helper value
 """
 
-        let selection =
-            { Name = "TooManyMethods"
-              RulesetName = "test"
-              Priority = 3
-              Properties = Map.ofList [ "maxmethods", "1" ] }
+        let selection = Map.ofList [ "maxmethods", "1" ]
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "TooManyMethods")
 
@@ -599,11 +579,7 @@ type Service() =
     member this.Run() = this.Helper()
 """
 
-        let selection =
-            { Name = "UnusedPrivateMethod"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedPrivateMethod")
         Assert.Empty(rule.Check analyzed selection)
@@ -619,11 +595,7 @@ type Service() =
     member this.Run() = 1
 """
 
-        let selection =
-            { Name = "UnusedPrivateMethod"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedPrivateMethod")
         let violations = rule.Check analyzed selection
@@ -1024,11 +996,7 @@ let nestedFor (items: int array) =
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "CountInLoopExpression")
 
-        let selection =
-            { Name = "CountInLoopExpression"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let reportedLines =
             rule.Check analyzed selection
@@ -1074,11 +1042,7 @@ let userDefined (items: int list) =
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "CountInLoopExpression")
 
-        let selection =
-            { Name = "CountInLoopExpression"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let reportedLines =
             rule.Check analyzed selection
@@ -1259,11 +1223,7 @@ let calculate () =
     result
 """
 
-        let selection =
-            { Name = "UnusedLocalVariable"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedLocalVariable")
         let violations = rule.Check analyzed selection
@@ -1279,11 +1239,7 @@ let mutable count = 0
 count <- 1
 """
 
-        let selection =
-            { Name = "GlobalVariable"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "GlobalVariable")
         let violations = rule.Check analyzed selection
@@ -1307,11 +1263,7 @@ let run status =
     | Some value -> printfn "%A" value
 """
 
-        let selection =
-            { Name = "EmptyCatchBlock"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
         let violations = rule.Check analyzed selection
@@ -1335,11 +1287,7 @@ let run status =
     | Some value -> printfn "%A" value
 """
 
-        let selection =
-            { Name = "EmptyCatchBlock"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
         let violations = rule.Check analyzed selection
@@ -1361,11 +1309,7 @@ let run status =
     | _ -> ()
 """
 
-        let selection =
-            { Name = "EmptyCatchBlock"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
         let violations = rule.Check analyzed selection
@@ -1385,11 +1329,7 @@ let run status =
     | _ -> ()
 """
 
-        let selection =
-            { Name = "EmptyCatchBlock"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
         let violations = rule.Check analyzed selection
@@ -1432,11 +1372,7 @@ let run () =
         printfn "Caught exception: %O" ex
 """
 
-        let selection =
-            { Name = "EmptyCatchBlock"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
         let violations = rule.Check analyzed selection
@@ -1457,11 +1393,7 @@ let run () =
         ()
 """
 
-        let selection =
-            { Name = "EmptyCatchBlock"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
         let violations = rule.Check analyzed selection
@@ -1483,11 +1415,7 @@ let run () =
         printfn "Failed IO"
 """
 
-        let selection =
-            { Name = "EmptyCatchBlock"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
         let violations = rule.Check analyzed selection
@@ -1524,21 +1452,13 @@ let greet (name: string) =
     printfn $"{prefix} {name}"
 """
 
-        let selectionParam =
-            { Name = "UnusedFormalParameter"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selectionParam = Map.empty
 
         let ruleParam = Rules.all |> List.find (fun r -> r.Name = "UnusedFormalParameter")
         let violationsParam = ruleParam.Check analyzed selectionParam
         Assert.Empty(violationsParam)
 
-        let selectionLocal =
-            { Name = "UnusedLocalVariable"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selectionLocal = Map.empty
 
         let ruleLocal = Rules.all |> List.find (fun r -> r.Name = "UnusedLocalVariable")
         let violationsLocal = ruleLocal.Check analyzed selectionLocal
@@ -1554,21 +1474,13 @@ let greet (name: string) =
 
         let analyzed = analyzeSource sourceText
 
-        let selectionParam =
-            { Name = "UnusedFormalParameter"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selectionParam = Map.empty
 
         let ruleParam = Rules.all |> List.find (fun r -> r.Name = "UnusedFormalParameter")
         let violationsParam = ruleParam.Check analyzed selectionParam
         Assert.Empty(violationsParam)
 
-        let selectionLocal =
-            { Name = "UnusedLocalVariable"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selectionLocal = Map.empty
 
         let ruleLocal = Rules.all |> List.find (fun r -> r.Name = "UnusedLocalVariable")
         let violationsLocal = ruleLocal.Check analyzed selectionLocal
@@ -1813,11 +1725,7 @@ let myMap =
           "second", (1, "different") ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -1834,11 +1742,7 @@ let myMap =
           (1, 2) ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -1854,11 +1758,7 @@ let myMap =
         [ 1, "item; 1, other" ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -1872,11 +1772,7 @@ let myMap =
 let myMap = Map.ofList [ "a", 1; "a", 2 ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -1893,11 +1789,7 @@ let myMap =
           "a", 2 ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -1930,11 +1822,7 @@ let dictionary =
           "dup", [| 2 |] ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -1959,11 +1847,7 @@ let myMap =
           2, [ "third; item" ] ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -1982,11 +1866,7 @@ let duplicates =
           KeyValuePair<string, int>("same", 2) ])
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -2005,11 +1885,7 @@ let duplicates =
           System.Collections.Generic.KeyValuePair<string, int>("same", 2) ])
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -2028,11 +1904,7 @@ let distinct =
           KeyValuePair<string, int>("second", 2) ])
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -2053,11 +1925,7 @@ let d4 = Dictionary [ new KeyValuePair<string, int>("d", 1); new KeyValuePair<st
 let d5 = dict [ System.Collections.Generic.KeyValuePair.Create<string, int>("e", 1); KeyValuePair.Create("e", 2) ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -2075,11 +1943,7 @@ let d1 = dict [ KeyValuePair.Create("a", 1); KeyValuePair.Create("b", 2) ]
 let d2 = Dictionary [ new KeyValuePair<string, int>("a", 1); new KeyValuePair<string, int>("b", 2) ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -2101,11 +1965,7 @@ let m7 = [ ("g", 1); ("g", 2) ] |> Map
 let m8 = Map <| [ ("h", 1); ("h", 2) ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -2129,11 +1989,7 @@ let m3 = Map.ofList [ ("c", 1); ("d", 2) ]
 let f (m: Map<string, int>) = [ ("e", 1); ("e", 2) ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -2156,11 +2012,7 @@ let multiline =
     |> Map.ofList
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -2184,11 +2036,7 @@ let qualifiedDict = ExtraTopLevelOperators.dict [ ("a", 1); ("a", 2) ]
 let piped = [ ("a", 1); ("a", 2) ] |> ExtraTopLevelOperators.readOnlyDict
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -2210,11 +2058,7 @@ let memberAccess = x.readOnlyDict [ ("a", 1); ("a", 2) ]
 let otherModule = Other.readOnlyDict [ ("a", 1); ("a", 2) ]
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -2229,11 +2073,7 @@ let distinct = [ ("a", 1); ("b", 2) ] |> Map.ofList
 let transformed = [ ("a", 1); ("a", 2) ] |> List.map id |> Map.ofList
 """
 
-        let selection =
-            { Name = "DuplicatedArrayKey"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
         let violations = rule.Check analyzed selection
@@ -2252,11 +2092,7 @@ open System.Text.Json
 let run () = 42
 """
 
-        let selection =
-            { Name = "StaticAccess"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
         let violations = rule.Check analyzed selection
@@ -2272,11 +2108,7 @@ module Helpers =
     let run () = 42
 """
 
-        let selection =
-            { Name = "StaticAccess"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
         let violations = rule.Check analyzed selection
@@ -2291,11 +2123,7 @@ module Helpers =
 let run () = 42
 """
 
-        let selection =
-            { Name = "StaticAccess"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
         let violations = rule.Check analyzed selection
@@ -2312,11 +2140,7 @@ let cache: System.Collections.Concurrent.ConcurrentDictionary<string, int> = fai
 let nested: System.Collections.Generic.List<System.Collections.Generic.Queue<int>> = failwith "no"
 """
 
-        let selection =
-            { Name = "StaticAccess"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
         let violations = rule.Check analyzed selection
@@ -2335,11 +2159,7 @@ let suppressed () = 42
 let alsoSuppressed () = 43
 """
 
-        let selection =
-            { Name = "StaticAccess"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
         let violations = rule.Check analyzed selection
@@ -2410,11 +2230,7 @@ let read () = System.IO.File.ReadAllText("input.txt")
 let annotated (value: int) = value
 """
 
-        let selection =
-            { Name = "StaticAccess"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
         let violations = rule.Check analyzed selection
@@ -2485,11 +2301,7 @@ type Account =
     member this.Update(isUser: bool, isPaused: bool) = ()
 """
 
-        let selection =
-            { Name = "BooleanArgumentFlag"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "BooleanArgumentFlag")
         let violations = rule.Check analyzed selection
@@ -2519,11 +2331,7 @@ let h (runner: Runner) x =
         x
 """
 
-        let selection =
-            { Name = "ElseExpression"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "ElseExpression")
 
@@ -2547,11 +2355,7 @@ let check (a: bool) (b: bool) =
         printfn "outer else branch"
 """
 
-        let selection =
-            { Name = "ElseExpression"
-              RulesetName = "cleancode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "ElseExpression")
         let violations = rule.Check analyzed selection
@@ -2853,11 +2657,7 @@ type SimpleService() =
 
         let analyzed = analyzeSource source
 
-        let selection =
-            { Name = "CouplingBetweenObjects"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.ofList [ "maximum", "13" ] }
+        let selection = Map.ofList [ "maximum", "13" ]
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "CouplingBetweenObjects")
         let violations = rule.Check analyzed selection
@@ -2889,11 +2689,7 @@ type ComplexService(
 
         let analyzed = analyzeSource source
 
-        let selection =
-            { Name = "CouplingBetweenObjects"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.ofList [ "maximum", "13" ] }
+        let selection = Map.ofList [ "maximum", "13" ]
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "CouplingBetweenObjects")
         let violations = rule.Check analyzed selection
@@ -2939,11 +2735,7 @@ type BuiltinConsumer(
 
         let analyzed = analyzeSource source
 
-        let selection =
-            { Name = "CouplingBetweenObjects"
-              RulesetName = "design"
-              Priority = 3
-              Properties = Map.ofList [ "maximum", "0" ] }
+        let selection = Map.ofList [ "maximum", "0" ]
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "CouplingBetweenObjects")
         let violations = rule.Check analyzed selection
@@ -3000,11 +2792,7 @@ type Service =
         Assert.True(permissionDecl.IsBoolean)
         Assert.True(enabledDecl.IsBoolean)
 
-        let selection =
-            { Name = "BooleanGetMethodName"
-              RulesetName = "fsharp"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "BooleanGetMethodName")
         let violations = rule.Check analyzed selection
@@ -3049,18 +2837,12 @@ type Service() =
         Assert.Equal(Member, getValue.Kind)
         Assert.Equal(1, getValue.ParameterCount)
 
-        let selection properties =
-            { Name = "BooleanGetMethodName"
-              RulesetName = "naming"
-              Priority = 3
-              Properties = properties }
-
         let rule =
             Rules.all
             |> List.find (fun candidate -> candidate.Name = "BooleanGetMethodName")
 
         let violationNames properties =
-            rule.Check analyzed (selection properties)
+            rule.Check analyzed properties
             |> List.map (fun violation ->
                 let matchResult =
                     System.Text.RegularExpressions.Regex.Match(violation.Description, "'([^']+)'")
@@ -3130,12 +2912,7 @@ and g y =
         let check ruleName properties =
             let rule = Rules.all |> List.find (fun rule -> rule.Name = ruleName)
 
-            rule.Check
-                analyzed
-                { Name = ruleName
-                  RulesetName = "codesize"
-                  Priority = 3
-                  Properties = properties }
+            rule.Check analyzed properties
 
         let startLines violations =
             violations
@@ -3289,7 +3066,7 @@ let alsoGood = 3
 
         let selection =
             { Name = rule.Name
-              RulesetName = "fsharp"
+              RulesetName = "controversial"
               Priority = rule.DefaultPriority
               Properties = rule.DefaultProperties }
 
@@ -3330,7 +3107,7 @@ let alsoGood = 3
 
         let selection =
             { Name = rule.Name
-              RulesetName = "fsharp"
+              RulesetName = "controversial"
               Priority = rule.DefaultPriority
               Properties = rule.DefaultProperties }
 
@@ -3430,11 +3207,7 @@ type Service() =
 """
 
         let check ruleName props =
-            let selection =
-                { Name = ruleName
-                  RulesetName = "test"
-                  Priority = 3
-                  Properties = props }
+            let selection = props
 
             let rule = Rules.all |> List.find (fun item -> item.Name = ruleName)
             rule.Check analyzed selection
@@ -3463,11 +3236,7 @@ type Service() =
     member _.Fourth() = sharedBeta
 """
 
-        let selection =
-            { Name = "LackOfCohesionOfMethods"
-              RulesetName = "test"
-              Priority = 3
-              Properties = Map.ofList [ "minimum", "1" ] }
+        let selection = Map.ofList [ "minimum", "1" ]
 
         let rule =
             Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
@@ -3502,11 +3271,7 @@ type StatefulParen() =
     member _.Set(value) = (count) <- value
 """
 
-        let selection =
-            { Name = "LackOfCohesionOfMethods"
-              RulesetName = "test"
-              Priority = 3
-              Properties = Map.ofList [ "minimum", "1" ] }
+        let selection = Map.ofList [ "minimum", "1" ]
 
         let rule =
             Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
@@ -3525,11 +3290,7 @@ type ReadWriteCounter() =
     member _.Reset() = count <- 0
 """
 
-        let selection =
-            { Name = "LackOfCohesionOfMethods"
-              RulesetName = "test"
-              Priority = 3
-              Properties = Map.ofList [ "minimum", "1" ] }
+        let selection = Map.ofList [ "minimum", "1" ]
 
         let rule =
             Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
@@ -3555,11 +3316,7 @@ type DisconnectedReadAndWrite() =
     member _.ResetSecond() = second <- 0
 """
 
-        let selection =
-            { Name = "LackOfCohesionOfMethods"
-              RulesetName = "test"
-              Priority = 3
-              Properties = Map.ofList [ "minimum", "1" ] }
+        let selection = Map.ofList [ "minimum", "1" ]
 
         let rule =
             Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
@@ -3636,11 +3393,7 @@ let compute () =
         let formalParamRule =
             Rules.all |> List.find (fun r -> r.Name = "UnusedFormalParameter")
 
-        let paramSelection =
-            { Name = "UnusedFormalParameter"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let paramSelection = Map.empty
 
         let paramViolations = formalParamRule.Check analyzed paramSelection
 
@@ -3649,11 +3402,7 @@ let compute () =
         let unusedLocalRule =
             Rules.all |> List.find (fun r -> r.Name = "UnusedLocalVariable")
 
-        let localSelection =
-            { Name = "UnusedLocalVariable"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let localSelection = Map.empty
 
         let localViolations = unusedLocalRule.Check analyzed localSelection
 
@@ -3873,21 +3622,13 @@ let compute () =
         Assert.Equal(Field, decl.Kind)
         Assert.Equal(Some "Service", decl.Parent)
 
-        let selectionLocal =
-            { Name = "UnusedLocalVariable"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selectionLocal = Map.empty
 
         let ruleLocal = Rules.all |> List.find (fun r -> r.Name = "UnusedLocalVariable")
         let violationsLocal = ruleLocal.Check analyzed selectionLocal
         Assert.Empty(violationsLocal)
 
-        let selectionField =
-            { Name = "UnusedPrivateField"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selectionField = Map.empty
 
         let ruleField = Rules.all |> List.find (fun r -> r.Name = "UnusedPrivateField")
         let violationsField = ruleField.Check analyzed selectionField
@@ -3931,11 +3672,7 @@ type Leaf() =
 
         Assert.Equal<(string * int) list>([ "Node", 4; "Leaf", 10 ], typeLines)
 
-        let selection =
-            { Name = "UnusedPrivateField"
-              RulesetName = "unusedcode"
-              Priority = 3
-              Properties = Map.empty }
+        let selection = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedPrivateField")
 
@@ -4497,11 +4234,7 @@ let unusedLocal () =
         let violations ruleName rulesetName =
             let rule = Rules.all |> List.find (fun item -> item.Name = ruleName)
 
-            let selection =
-                { Name = ruleName
-                  RulesetName = rulesetName
-                  Priority = 3
-                  Properties = Map.empty }
+            let selection = Map.empty
 
             rule.Check analyzed selection
             |> List.map (fun violation -> violation.Location.StartLine, violation.Description)
@@ -4564,7 +4297,7 @@ let unusedLocal () =
         let text =
             "module Sample\n\ntype Widget() =\n    [<System.Diagnostics.CodeAnalysis.SuppressMessage(\"messfsharp\", \"emptycatchblock\")>]\n    member _.Run() =\n        try\n            failwith \"x\"\n        with _ ->\n            ()\n\n    member _.Other() =\n        try\n            failwith \"y\"\n        with _ ->\n            ()\n"
 
-        let lines violations =
+        let lines (violations: Violation list) =
             violations |> List.map (fun violation -> violation.Location.StartLine)
 
         Assert.Equal<int list>([ 14 ], engineViolations false "EmptyCatchBlock" text |> lines)

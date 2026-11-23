@@ -232,12 +232,17 @@ module Domain =
           MinimumPriority: int option
           MaximumPriority: int option }
 
+    type RuleFinding =
+        { Location: SourceLocation
+          Description: string
+          Declaration: Declaration option }
+
     type RuleImplementation =
         { Name: string
           DefaultPriority: int
           DefaultProperties: Map<string, string>
           Description: string
-          Check: AnalyzedFile -> RuleSelection -> Violation list }
+          Check: AnalyzedFile -> Map<string, string> -> RuleFinding list }
 
     type AnalysisOptions =
         { Paths: string list
