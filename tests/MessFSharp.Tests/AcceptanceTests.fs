@@ -149,6 +149,38 @@ module AcceptanceTests =
         Assert.Equal("", result.StandardError)
 
     [<Fact>]
+    let ``script module syntax reports errors without hiding other findings`` () =
+        let invalid = fixture "issue-232-invalid-module.fsx"
+        let paths = String.concat "," [ invalid; fixture "bad.fs" ]
+
+        let run extra =
+            PackagedTool.run ([ paths; "json"; "fsharp"; "--only"; "CamelCaseVariableName" ] @ extra)
+
+        for extra, expected in
+            [ [], 1
+              [ "--ignore-errors-on-exit" ], 2
+              [ "--ignore-violations-on-exit" ], 1
+              [ "--ignore-errors-on-exit"; "--ignore-violations-on-exit" ], 0 ] do
+            let result = run extra
+            Assert.Equal(expected, result.ExitCode)
+            use document = JsonDocument.Parse(result.StandardOutput)
+            let errors = document.RootElement.GetProperty("errors")
+            Assert.Equal(1, errors.GetArrayLength())
+            let error = errors[0]
+            Assert.EndsWith("issue-232-invalid-module.fsx", error.GetProperty("file").GetString())
+            Assert.Equal(1, error.GetProperty("location").GetProperty("startLine").GetInt32())
+            Assert.Contains("module", error.GetProperty("message").GetString())
+            Assert.NotEqual(0, document.RootElement.GetProperty("violations").GetArrayLength())
+
+        for name in [ "issue-232-valid-module.fsx"; "issue-232-valid-module.fs" ] do
+            let result =
+                PackagedTool.run [ fixture name; "json"; "fsharp"; "--only"; "CamelCaseVariableName" ]
+
+            Assert.Equal(0, result.ExitCode)
+            use document = JsonDocument.Parse(result.StandardOutput)
+            Assert.Equal(0, document.RootElement.GetProperty("errors").GetArrayLength())
+
+    [<Fact>]
     let ``report paths are relative to the working directory across all formats`` () =
         let relativeSource = Path.Combine("tests", "Fixtures", "bad.fs")
         let absoluteSource = PackagedTool.path relativeSource
@@ -848,7 +880,7 @@ module AcceptanceTests =
                   "json"
                   fixture "all-rules.xml"
                   "--exclude"
-                  "invalid.fs" ]
+                  "invalid.fs,issue-232-invalid-module.fsx" ]
 
         Assert.Equal(2, result.ExitCode)
         Assert.Equal("", result.StandardError)
