@@ -48,7 +48,7 @@ module Rules =
                 None)
         |> Option.defaultValue fallback
 
-    let private violation (file: AnalyzedFile) (declaration: Declaration option) (line: int) (description: string) =
+    let private finding (file: AnalyzedFile) (declaration: Declaration option) (line: int) (description: string) =
         let location =
             match declaration with
             | Some item -> item.Location
@@ -943,7 +943,7 @@ module Rules =
         |> List.choose (fun declaration ->
             if description declaration |> Option.isSome then
                 Some(
-                    violation
+                    finding
                         file
                         (Some declaration)
                         declaration.Location.StartLine
@@ -1096,7 +1096,7 @@ module Rules =
 
                     if count > maximum then
                         Some(
-                            violation
+                            finding
                                 file
                                 (Some declaration)
                                 declaration.Location.StartLine
@@ -1124,7 +1124,7 @@ module Rules =
 
                     if count > maximum then
                         Some(
-                            violation
+                            finding
                                 file
                                 (Some declaration)
                                 declaration.Location.StartLine
@@ -1154,7 +1154,7 @@ module Rules =
 
                     if count > maximum then
                         Some(
-                            violation
+                            finding
                                 file
                                 (Some declaration)
                                 declaration.Location.StartLine
@@ -1185,7 +1185,7 @@ module Rules =
 
                     if count > maximum then
                         Some(
-                            violation
+                            finding
                                 file
                                 (Some declaration)
                                 declaration.Location.StartLine
@@ -1216,7 +1216,7 @@ module Rules =
 
                     if value > maximum then
                         Some(
-                            violation
+                            finding
                                 file
                                 (Some declaration)
                                 declaration.Location.StartLine
@@ -1547,7 +1547,7 @@ module Rules =
                 |> Array.choose (fun token ->
                     if isElseFlattenable file token.Line token.Column then
                         Some(
-                            violation
+                            finding
                                 file
                                 None
                                 token.Line
@@ -1688,11 +1688,7 @@ module Rules =
                         && not inType
                     then
                         Some(
-                            violation
-                                file
-                                None
-                                token.Line
-                                "Explicit static access is enabled by an opinionated policy."
+                            finding file None token.Line "Explicit static access is enabled by an opinionated policy."
                         )
                     else
                         None)
@@ -1717,9 +1713,7 @@ module Rules =
                 mapConstructions file
                 |> List.choose (fun (lineNumber, keys) ->
                     if keys.Length <> (keys |> List.distinct |> List.length) then
-                        Some(
-                            violation file None lineNumber "A map or dictionary construction contains a duplicate key."
-                        )
+                        Some(finding file None lineNumber "A map or dictionary construction contains a duplicate key.")
                     else
                         None) }
 
@@ -1771,7 +1765,7 @@ module Rules =
                         isEnvironmentExit || isSystemEnvironmentExit
 
                     if isExitCall || isEnvironmentExitCall then
-                        Some(violation file None token.Line "Process exit is embedded in an analyzable expression.")
+                        Some(finding file None token.Line "Process exit is embedded in an analyzable expression.")
                     else
                         None)
                 |> Array.toList }
@@ -1792,7 +1786,7 @@ module Rules =
             fun file properties ->
                 linesInsideLoops file
                 |> List.map (fun lineNumber ->
-                    violation file None lineNumber "Collection count is evaluated inside a loop.") }
+                    finding file None lineNumber "Collection count is evaluated inside a loop.") }
 
     let developmentCodeFragment =
         { Name = "DevelopmentCodeFragment"
@@ -1818,7 +1812,7 @@ module Rules =
                 |> Array.mapi (fun index line -> index + 1, line)
                 |> Array.choose (fun (lineNumber, line) ->
                     if patterns |> Array.exists (fun pattern -> pattern.IsMatch(line)) then
-                        Some(violation file None lineNumber "Development-only marker found in production source.")
+                        Some(finding file None lineNumber "Development-only marker found in production source.")
                     else
                         None)
                 |> Array.toList }
@@ -1869,7 +1863,7 @@ module Rules =
                             bodyLines.IsEmpty || bodyLines |> List.forall (fun line -> line = "()")
 
                         if emptyBody then
-                            Some(violation file None clause.StartLine "Exception handler is empty.")
+                            Some(finding file None clause.StartLine "Exception handler is empty.")
                         else
                             None
 
@@ -1994,7 +1988,7 @@ module Rules =
 
                     if names > maximum then
                         Some(
-                            violation
+                            finding
                                 file
                                 (Some declaration)
                                 declaration.Location.StartLine
@@ -2104,7 +2098,7 @@ module Rules =
 
                         if groups > property properties "minimum" 1 then
                             Some(
-                                violation
+                                finding
                                     file
                                     (Some typeDeclaration)
                                     typeDeclaration.Location.StartLine
@@ -2265,6 +2259,15 @@ module Rules =
             OutputFlow
             true
             "Reports members that change their own type's data instead of returning values."
+
+    let flowRuleNames =
+        [ implicitInput
+          implicitOutput
+          unknownEffect
+          implicitClassInput
+          implicitClassOutput ]
+        |> List.map (fun rule -> rule.Name.ToLowerInvariant())
+        |> Set.ofList
 
     let all =
         [ cyclomaticComplexity

@@ -74,6 +74,28 @@ module AnalyzerTests =
             Assert.Equal(Some "Sample", violation.Context.Module)
 
     [<Fact>]
+    let ``engine attributes nested lazy effects to the lazy owner`` () =
+        let source =
+            SourceFile.ofText
+                "sample.fs"
+                Implementation
+                "module Sample\ntype Widget() =\n    member _.Run() = lazy (printfn \"hello\")\n"
+
+        let rule = Rules.byName["implicitoutput"]
+
+        let selection =
+            { Name = rule.Name
+              RulesetName = "explicitness"
+              Priority = 3
+              Properties = Map.empty }
+
+        match Engine.analyzeSource false [ selection ] source with
+        | Error errors -> failwithf "Expected valid source: %A" errors
+        | Ok violations ->
+            let violation = Assert.Single violations
+            Assert.Equal(Some "<lazy>", violation.Context.Member)
+
+    [<Fact>]
     let ``source file of text normalizes carriage returns into lines`` () =
         let source =
             SourceFile.ofText "sample.fs" Implementation "let a = 1\r\nlet b = 2\rlet c = 3\n"
@@ -231,9 +253,9 @@ let total = first + second
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
 
-        let selection = Map.empty
+        let properties = Map.empty
 
-        Assert.Empty(rule.Check analyzed selection)
+        Assert.Empty(rule.Check analyzed properties)
 
     [<Fact>]
     let ``record pattern bindings are values rather than field labels and parameters`` () =
@@ -416,9 +438,9 @@ let (|Even|Odd|) value =
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "UnusedFormalParameter")
 
-        let selection = Map.empty
+        let properties = Map.empty
 
-        Assert.Empty(rule.Check analyzed selection)
+        Assert.Empty(rule.Check analyzed properties)
 
     [<Fact>]
     let ``let bang bindings are local to computation expressions`` () =
@@ -436,12 +458,12 @@ let run work = async {
             analyzed.Declarations
             |> List.find (fun declaration -> declaration.Name = "result")
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule =
             Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
 
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
 
         Assert.Contains(violations, fun violation -> violation.Description = "Local binding 'result' is never used.")
         Assert.False(resultDeclaration.IsModuleLevel)
@@ -462,12 +484,12 @@ let workflow = async {
             analyzed.Declarations
             |> List.find (fun declaration -> declaration.Name = "result")
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule =
             Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
 
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
 
         Assert.Contains(violations, fun violation -> violation.Description = "Local binding 'result' is never used.")
         Assert.False(resultDeclaration.IsModuleLevel)
@@ -488,14 +510,14 @@ let shadowed () =
     let x = 1 in let x = x + 1 in x
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule =
             Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
 
         Assert.Equal<(int * string) list>(
             [ 7, "Local binding 'value' is never used." ],
-            rule.Check analyzed selection
+            rule.Check analyzed properties
             |> List.map (fun violation -> violation.Location.StartLine, violation.Description)
         )
 
@@ -511,12 +533,12 @@ let workflow = async {
 }
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule =
             Rules.all |> List.find (fun candidate -> candidate.Name = "UnusedLocalVariable")
 
-        Assert.Empty(rule.Check analyzed selection)
+        Assert.Empty(rule.Check analyzed properties)
 
     [<Fact>]
     let ``type methods count each member definition once`` () =
@@ -543,11 +565,11 @@ type Service =
         helper 1
 """
 
-        let selection = Map.ofList [ "maxmethods", "1" ]
+        let properties = Map.ofList [ "maxmethods", "1" ]
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "TooManyMethods")
 
-        Assert.Empty(rule.Check analyzed selection)
+        Assert.Empty(rule.Check analyzed properties)
         Assert.Equal(1, (Map.find "Service" analyzed.TypeMethods |> List.length))
 
     [<Fact>]
@@ -561,11 +583,11 @@ let outer value =
     helper value
 """
 
-        let selection = Map.ofList [ "maxmethods", "1" ]
+        let properties = Map.ofList [ "maxmethods", "1" ]
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "TooManyMethods")
 
-        Assert.Empty(rule.Check analyzed selection)
+        Assert.Empty(rule.Check analyzed properties)
         Assert.Equal(1, (Map.find "TestNestedModuleFunctions" analyzed.TypeMethods |> List.length))
 
     [<Fact>]
@@ -579,10 +601,10 @@ type Service() =
     member this.Run() = this.Helper()
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedPrivateMethod")
-        Assert.Empty(rule.Check analyzed selection)
+        Assert.Empty(rule.Check analyzed properties)
 
     [<Fact>]
     let ``genuinely unused private members are still flagged`` () =
@@ -595,10 +617,10 @@ type Service() =
     member this.Run() = 1
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedPrivateMethod")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
 
         Assert.Contains(
             violations,
@@ -996,10 +1018,10 @@ let nestedFor (items: int array) =
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "CountInLoopExpression")
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let reportedLines =
-            rule.Check analyzed selection
+            rule.Check analyzed properties
             |> List.map (fun violation -> violation.Location.StartLine)
             |> List.sort
 
@@ -1042,10 +1064,10 @@ let userDefined (items: int list) =
 
         let rule = Rules.all |> List.find (fun item -> item.Name = "CountInLoopExpression")
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let reportedLines =
-            rule.Check analyzed selection
+            rule.Check analyzed properties
             |> List.map (fun violation -> violation.Location.StartLine)
             |> List.sort
 
@@ -1223,10 +1245,10 @@ let calculate () =
     result
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedLocalVariable")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -1239,10 +1261,10 @@ let mutable count = 0
 count <- 1
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "GlobalVariable")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.NotEmpty(violations)
 
     [<Fact>]
@@ -1263,10 +1285,10 @@ let run status =
     | Some value -> printfn "%A" value
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -1287,10 +1309,10 @@ let run status =
     | Some value -> printfn "%A" value
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -1309,10 +1331,10 @@ let run status =
     | _ -> ()
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Single(violations) |> ignore
         Assert.Equal(10, violations[0].Location.StartLine)
 
@@ -1329,10 +1351,10 @@ let run status =
     | _ -> ()
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
 
         Assert.Contains(violations, fun violation -> violation.Location.StartLine = 7)
 
@@ -1372,10 +1394,10 @@ let run () =
         printfn "Caught exception: %O" ex
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -1393,10 +1415,10 @@ let run () =
         ()
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Single(violations) |> ignore
         Assert.Equal(7, violations[0].Location.StartLine)
 
@@ -1415,10 +1437,10 @@ let run () =
         printfn "Failed IO"
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "EmptyCatchBlock")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -1725,10 +1747,10 @@ let myMap =
           "second", (1, "different") ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -1742,10 +1764,10 @@ let myMap =
           (1, 2) ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -1758,10 +1780,10 @@ let myMap =
         [ 1, "item; 1, other" ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -1772,10 +1794,10 @@ let myMap =
 let myMap = Map.ofList [ "a", 1; "a", 2 ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Single(violations) |> ignore
 
     [<Fact>]
@@ -1789,10 +1811,10 @@ let myMap =
           "a", 2 ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Single(violations) |> ignore
 
     [<Fact>]
@@ -1822,10 +1844,10 @@ let dictionary =
           "dup", [| 2 |] ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
 
         Assert.Equal(4, violations.Length)
 
@@ -1847,10 +1869,10 @@ let myMap =
           2, [ "third; item" ] ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -1866,10 +1888,10 @@ let duplicates =
           KeyValuePair<string, int>("same", 2) ])
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Single(violations) |> ignore
 
     [<Fact>]
@@ -1885,10 +1907,10 @@ let duplicates =
           System.Collections.Generic.KeyValuePair<string, int>("same", 2) ])
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Single(violations) |> ignore
 
     [<Fact>]
@@ -1904,10 +1926,10 @@ let distinct =
           KeyValuePair<string, int>("second", 2) ])
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -1925,10 +1947,10 @@ let d4 = Dictionary [ new KeyValuePair<string, int>("d", 1); new KeyValuePair<st
 let d5 = dict [ System.Collections.Generic.KeyValuePair.Create<string, int>("e", 1); KeyValuePair.Create("e", 2) ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Equal<int list>([ 5; 6; 7; 8; 9 ], violations |> List.map (fun v -> v.Location.StartLine) |> List.sort)
 
     [<Fact>]
@@ -1943,10 +1965,10 @@ let d1 = dict [ KeyValuePair.Create("a", 1); KeyValuePair.Create("b", 2) ]
 let d2 = Dictionary [ new KeyValuePair<string, int>("a", 1); new KeyValuePair<string, int>("b", 2) ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -1965,10 +1987,10 @@ let m7 = [ ("g", 1); ("g", 2) ] |> Map
 let m8 = Map <| [ ("h", 1); ("h", 2) ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
 
         Assert.Equal<int list>(
             [ 3; 4; 5; 6; 7; 8; 9; 10 ],
@@ -1989,10 +2011,10 @@ let m3 = Map.ofList [ ("c", 1); ("d", 2) ]
 let f (m: Map<string, int>) = [ ("e", 1); ("e", 2) ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2012,10 +2034,10 @@ let multiline =
     |> Map.ofList
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
 
         Assert.Equal<int list>(
             [ 2; 3; 4; 5; 6; 7; 9 ],
@@ -2036,10 +2058,10 @@ let qualifiedDict = ExtraTopLevelOperators.dict [ ("a", 1); ("a", 2) ]
 let piped = [ ("a", 1); ("a", 2) ] |> ExtraTopLevelOperators.readOnlyDict
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
 
         Assert.Equal<int list>(
             [ 2; 3; 4; 5; 6 ],
@@ -2058,10 +2080,10 @@ let memberAccess = x.readOnlyDict [ ("a", 1); ("a", 2) ]
 let otherModule = Other.readOnlyDict [ ("a", 1); ("a", 2) ]
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2073,10 +2095,10 @@ let distinct = [ ("a", 1); ("b", 2) ] |> Map.ofList
 let transformed = [ ("a", 1); ("a", 2) ] |> List.map id |> Map.ofList
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "DuplicatedArrayKey")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2092,10 +2114,10 @@ open System.Text.Json
 let run () = 42
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2108,10 +2130,10 @@ module Helpers =
     let run () = 42
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2123,10 +2145,10 @@ module Helpers =
 let run () = 42
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2140,10 +2162,10 @@ let cache: System.Collections.Concurrent.ConcurrentDictionary<string, int> = fai
 let nested: System.Collections.Generic.List<System.Collections.Generic.Queue<int>> = failwith "no"
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2159,10 +2181,10 @@ let suppressed () = 42
 let alsoSuppressed () = 43
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2230,10 +2252,10 @@ let read () = System.IO.File.ReadAllText("input.txt")
 let annotated (value: int) = value
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "StaticAccess")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Equal(2, violations |> List.length)
 
         Assert.Equal(
@@ -2301,10 +2323,10 @@ type Account =
     member this.Update(isUser: bool, isPaused: bool) = ()
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "BooleanArgumentFlag")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2331,12 +2353,12 @@ let h (runner: Runner) x =
         x
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "ElseExpression")
 
         let elseLines =
-            rule.Check analyzed selection
+            rule.Check analyzed properties
             |> List.map (fun violation -> violation.Location.StartLine)
 
         Assert.Equal<int list>([ 5; 11 ], elseLines)
@@ -2355,10 +2377,10 @@ let check (a: bool) (b: bool) =
         printfn "outer else branch"
 """
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "ElseExpression")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2657,10 +2679,10 @@ type SimpleService() =
 
         let analyzed = analyzeSource source
 
-        let selection = Map.ofList [ "maximum", "13" ]
+        let properties = Map.ofList [ "maximum", "13" ]
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "CouplingBetweenObjects")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2689,10 +2711,10 @@ type ComplexService(
 
         let analyzed = analyzeSource source
 
-        let selection = Map.ofList [ "maximum", "13" ]
+        let properties = Map.ofList [ "maximum", "13" ]
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "CouplingBetweenObjects")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Single(violations) |> ignore
         let v = violations.Head
         Assert.Equal("Coupling count 14 exceeds maximum 13.", v.Description)
@@ -2735,10 +2757,10 @@ type BuiltinConsumer(
 
         let analyzed = analyzeSource source
 
-        let selection = Map.ofList [ "maximum", "0" ]
+        let properties = Map.ofList [ "maximum", "0" ]
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "CouplingBetweenObjects")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Empty(violations)
 
     [<Fact>]
@@ -2792,10 +2814,10 @@ type Service =
         Assert.True(permissionDecl.IsBoolean)
         Assert.True(enabledDecl.IsBoolean)
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "BooleanGetMethodName")
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
 
         let violationNames =
             violations
@@ -3207,10 +3229,10 @@ type Service() =
 """
 
         let check ruleName props =
-            let selection = props
+            let properties = props
 
             let rule = Rules.all |> List.find (fun item -> item.Name = ruleName)
-            rule.Check analyzed selection
+            rule.Check analyzed properties
 
         Assert.Empty(check "TooManyFields" (Map.ofList [ "maxfields", "2" ]))
         Assert.Empty(check "TooManyMethods" (Map.ofList [ "maxmethods", "3" ]))
@@ -3236,12 +3258,12 @@ type Service() =
     member _.Fourth() = sharedBeta
 """
 
-        let selection = Map.ofList [ "minimum", "1" ]
+        let properties = Map.ofList [ "minimum", "1" ]
 
         let rule =
             Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
 
-        Assert.Empty(rule.Check analyzed selection)
+        Assert.Empty(rule.Check analyzed properties)
 
     [<Fact>]
     let ``lack of cohesion of methods counts field mutation targets as references`` () =
@@ -3271,12 +3293,12 @@ type StatefulParen() =
     member _.Set(value) = (count) <- value
 """
 
-        let selection = Map.ofList [ "minimum", "1" ]
+        let properties = Map.ofList [ "minimum", "1" ]
 
         let rule =
             Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
 
-        Assert.Empty(rule.Check analyzed selection)
+        Assert.Empty(rule.Check analyzed properties)
 
     [<Fact>]
     let ``lack of cohesion connects reader and writer methods of the same field`` () =
@@ -3290,12 +3312,12 @@ type ReadWriteCounter() =
     member _.Reset() = count <- 0
 """
 
-        let selection = Map.ofList [ "minimum", "1" ]
+        let properties = Map.ofList [ "minimum", "1" ]
 
         let rule =
             Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
 
-        Assert.Empty(rule.Check analyzed selection)
+        Assert.Empty(rule.Check analyzed properties)
 
     [<Fact>]
     let ``lack of cohesion reports methods that mutate disjoint fields`` () =
@@ -3316,12 +3338,12 @@ type DisconnectedReadAndWrite() =
     member _.ResetSecond() = second <- 0
 """
 
-        let selection = Map.ofList [ "minimum", "1" ]
+        let properties = Map.ofList [ "minimum", "1" ]
 
         let rule =
             Rules.all |> List.find (fun item -> item.Name = "LackOfCohesionOfMethods")
 
-        let violations = rule.Check analyzed selection
+        let violations = rule.Check analyzed properties
         Assert.Equal(2, violations.Length)
         Assert.All(violations, fun v -> Assert.Equal("Type methods form 2 cohesion groups.", v.Description))
 
@@ -3672,13 +3694,13 @@ type Leaf() =
 
         Assert.Equal<(string * int) list>([ "Node", 4; "Leaf", 10 ], typeLines)
 
-        let selection = Map.empty
+        let properties = Map.empty
 
         let rule = Rules.all |> List.find (fun r -> r.Name = "UnusedPrivateField")
 
         Assert.Equal<string list>(
             [ "Private field 'unusedField' is never used." ],
-            rule.Check analyzed selection
+            rule.Check analyzed properties
             |> List.map (fun violation -> violation.Description)
         )
 
@@ -4234,9 +4256,9 @@ let unusedLocal () =
         let violations ruleName rulesetName =
             let rule = Rules.all |> List.find (fun item -> item.Name = ruleName)
 
-            let selection = Map.empty
+            let properties = Map.empty
 
-            rule.Check analyzed selection
+            rule.Check analyzed properties
             |> List.map (fun violation -> violation.Location.StartLine, violation.Description)
 
         Assert.Equal<(int * string) list>(
