@@ -1,6 +1,7 @@
 namespace MessFSharp
 
 open System
+open System.Collections.Generic
 open System.IO
 open Domain
 
@@ -70,19 +71,24 @@ module Discovery =
             then
                 files.Add(normalized)
 
-        let rec visitDirectory root (directory: DirectoryInfo) =
+        // Do not visit one physical directory more than once in one search.
+        // A symlink cycle can otherwise visit the same directory many times.
+        let rec visitDirectory root (visited: HashSet<string>) (directory: DirectoryInfo) =
             if
                 not (isAlwaysExcludedDirectory directory)
                 && not (isExcluded options.Excludes directory.FullName)
             then
-                try
-                    for file in directory.EnumerateFiles() do
-                        addFile root file.FullName
+                let physicalDirectory = PathDisplay.resolvePhysicalPath directory.FullName
 
-                    for child in directory.EnumerateDirectories() do
-                        visitDirectory root child
-                with ex ->
-                    addError directory.FullName (sprintf "Could not read directory: %s" ex.Message)
+                if visited.Add(physicalDirectory) then
+                    try
+                        for file in directory.EnumerateFiles() do
+                            addFile root file.FullName
+
+                        for child in directory.EnumerateDirectories() do
+                            visitDirectory root visited child
+                    with ex ->
+                        addError directory.FullName (sprintf "Could not read directory: %s" ex.Message)
 
         for requestedPath in options.Paths do
             let normalized = normalize requestedPath
@@ -93,14 +99,16 @@ module Discovery =
                 else
                     addError normalized (sprintf "Path does not match any configured source suffix: %s" normalized)
             elif Directory.Exists(normalized) then
-                visitDirectory normalized (DirectoryInfo(normalized))
+                visitDirectory normalized (HashSet<string>()) (DirectoryInfo(normalized))
             else
                 addError normalized "Requested path does not exist."
 
+        // Keep one path for each physical file. Symlink aliases resolve to the
+        // same physical path. The first path in sorted order is kept.
         let sortedFiles =
             files
             |> Seq.sortWith (fun left right -> StringComparer.Ordinal.Compare(left, right))
-            |> Seq.distinct
+            |> Seq.distinctBy PathDisplay.resolvePhysicalPath
             |> Seq.toList
 
         sortedFiles, errors |> Seq.toList

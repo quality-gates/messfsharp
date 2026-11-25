@@ -710,6 +710,117 @@ type Service() =
         Assert.Equal<string list>([ clean ], discovered)
 
     [<Fact>]
+    let ``symlink aliases of one physical file report one violation`` () =
+        let workspace = Directory.CreateTempSubdirectory("messfsharp-symlink-alias-")
+
+        try
+            let normal = Path.Combine(workspace.FullName, "Normal.fs")
+            let link = Path.Combine(workspace.FullName, "Link.fs")
+
+            File.WriteAllText(normal, "module Normal\nlet mutable counter = 0\nlet bump () = counter <- counter + 1\n")
+
+            File.CreateSymbolicLink(link, normal) |> ignore
+
+            let directoryResult =
+                Engine.run
+                    "0.1.0"
+                    { options [ workspace.FullName ] [ "design" ] Json with
+                        Only = [ "GlobalVariable" ] }
+
+            Assert.Empty(directoryResult.Report.Errors)
+            Assert.Single(directoryResult.Report.Violations) |> ignore
+            Assert.Equal(2, directoryResult.ExitCode)
+
+            let explicitResult =
+                Engine.run
+                    "0.1.0"
+                    { options [ normal; link ] [ "design" ] Json with
+                        Only = [ "GlobalVariable" ] }
+
+            Assert.Empty(explicitResult.Report.Errors)
+            Assert.Single(explicitResult.Report.Violations) |> ignore
+            Assert.Equal(2, explicitResult.ExitCode)
+        finally
+            workspace.Delete(true)
+
+    [<Fact>]
+    let ``broken target reached through a symlink does not double processing errors`` () =
+        let workspace = Directory.CreateTempSubdirectory("messfsharp-symlink-broken-")
+
+        try
+            let broken = Path.Combine(workspace.FullName, "Broken.fs")
+            let link = Path.Combine(workspace.FullName, "BrokenLink.fs")
+
+            File.WriteAllText(broken, "module Invalid\n\nlet thisDoesNotParse =\n    if true then\n")
+            File.CreateSymbolicLink(link, broken) |> ignore
+
+            let single =
+                Engine.run
+                    "0.1.0"
+                    { options [ broken ] [ "design" ] Json with
+                        Only = [ "GlobalVariable" ] }
+
+            let directoryResult =
+                Engine.run
+                    "0.1.0"
+                    { options [ workspace.FullName ] [ "design" ] Json with
+                        Only = [ "GlobalVariable" ] }
+
+            Assert.NotEmpty(single.Report.Errors)
+            Assert.Equal(single.Report.Errors.Length, directoryResult.Report.Errors.Length)
+            Assert.Equal(single.ExitCode, directoryResult.ExitCode)
+        finally
+            workspace.Delete(true)
+
+    [<Fact>]
+    let ``directory symlink cycle reports one violation for the physical file`` () =
+        let workspace = Directory.CreateTempSubdirectory("messfsharp-symlink-cycle-")
+
+        try
+            let cycle = Directory.CreateDirectory(Path.Combine(workspace.FullName, "cycle"))
+            let normal = Path.Combine(cycle.FullName, "Normal.fs")
+
+            File.WriteAllText(normal, "module Normal\nlet mutable counter = 0\nlet bump () = counter <- counter + 1\n")
+
+            Directory.CreateSymbolicLink(Path.Combine(cycle.FullName, "Loop"), cycle.FullName)
+            |> ignore
+
+            let result =
+                Engine.run
+                    "0.1.0"
+                    { options [ cycle.FullName ] [ "design" ] Json with
+                        Only = [ "GlobalVariable" ] }
+
+            Assert.Empty(result.Report.Errors)
+            Assert.Single(result.Report.Violations) |> ignore
+            Assert.Equal(2, result.ExitCode)
+        finally
+            workspace.Delete(true)
+
+    [<Fact>]
+    let ``distinct physical files with identical content report one violation each`` () =
+        let workspace = Directory.CreateTempSubdirectory("messfsharp-symlink-distinct-")
+
+        try
+            let text =
+                "module Same\nlet mutable counter = 0\nlet bump () = counter <- counter + 1\n"
+
+            File.WriteAllText(Path.Combine(workspace.FullName, "A.fs"), text)
+            File.WriteAllText(Path.Combine(workspace.FullName, "B.fs"), text)
+
+            let result =
+                Engine.run
+                    "0.1.0"
+                    { options [ workspace.FullName ] [ "design" ] Json with
+                        Only = [ "GlobalVariable" ] }
+
+            Assert.Empty(result.Report.Errors)
+            Assert.Equal(2, result.Report.Violations.Length)
+            Assert.Equal(2, result.ExitCode)
+        finally
+            workspace.Delete(true)
+
+    [<Fact>]
     let ``ignore-tests does not skip production files when an ancestor directory ends in Tests`` () =
         let workspace = Directory.CreateTempSubdirectory("messfsharp-ancestor-")
 
