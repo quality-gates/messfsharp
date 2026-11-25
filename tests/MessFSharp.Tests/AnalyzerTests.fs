@@ -995,6 +995,105 @@ type Service() =
         Assert.DoesNotContain(result.Report.Violations, fun violation -> violation.RuleName = "GlobalVariable")
 
     [<Fact>]
+    let ``indexer assignment is observed mutation for GlobalVariable`` () =
+        let cases =
+            [ (2, "module Mod\nlet table = [| 1; 2; 3 |]\nlet setFirst value = table.[0] <- value\n")
+              (2, "module Mod\nlet table = [| 1; 2; 3 |]\nlet setFirst value = table[0] <- value\n")
+              (3,
+               "module Mod\nopen System.Collections.Generic\nlet store = Dictionary<string, int>()\nlet addValue key value = store.[key] <- value\n") ]
+
+        for expectedLine, source in cases do
+            let analyzed = analyzeSource source
+            let rule = Rules.all |> List.find (fun r -> r.Name = "GlobalVariable")
+            let violations = rule.Check analyzed (Map.empty)
+
+            let violation = Assert.Single violations
+            Assert.Equal(expectedLine, violation.Location.StartLine)
+
+    [<Fact>]
+    let ``mutating collection methods are observed mutation for GlobalVariable`` () =
+        let cases =
+            [ "module Mod\nlet store = ResizeArray<int>()\nlet addValue item = store.Add(item)\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet addValue item = store.Add item\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet addFirst item = store.AddFirst(item)\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet addRange items = store.AddRange(items)\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet remove item = store.Remove(item) |> ignore\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet removeAt index = store.RemoveAt(index)\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet removeAll pred = store.RemoveAll(pred) |> ignore\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet clear () = store.Clear()\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet insert index item = store.Insert(index, item)\n"
+              "module Mod\nopen System.Collections.Generic\nlet stack = Stack<int>()\nlet push item = stack.Push(item)\n"
+              "module Mod\nopen System.Collections.Generic\nlet stack = Stack<int>()\nlet pop () = stack.Pop() |> ignore\n"
+              "module Mod\nopen System.Collections.Generic\nlet queue = Queue<int>()\nlet enqueue item = queue.Enqueue(item)\n"
+              "module Mod\nopen System.Collections.Generic\nlet queue = Queue<int>()\nlet dequeue () = queue.Dequeue() |> ignore\n"
+              "module Mod\nopen System.Collections.Generic\nlet store = Dictionary<string, int>()\nlet tryAdd key value = store.TryAdd(key, value) |> ignore\n"
+              "module Mod\nopen System.Collections.Generic\nlet setx = HashSet<int>()\nlet tryRemove item = setx.TryRemove(item) |> ignore\n"
+              "module Mod\nopen System.Text\nlet builder = StringBuilder()\nlet append text = builder.Append(text) |> ignore\n"
+              "module Mod\nopen System.Text\nlet builder = StringBuilder()\nlet appendLine text = builder.AppendLine(text) |> ignore\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet sort () = store.Sort()\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet reverse () = store.Reverse()\n"
+              "module Mod\nopen System.Collections.Generic\nlet setx = HashSet<int>()\nlet addItem item = setx.Add(item) |> ignore\n" ]
+
+        for source in cases do
+            let analyzed = analyzeSource source
+            let rule = Rules.all |> List.find (fun r -> r.Name = "GlobalVariable")
+            let violations = rule.Check analyzed (Map.empty)
+
+            let violation = Assert.Single violations
+
+            let expectedLine =
+                if source.Contains("open ", System.StringComparison.Ordinal) then
+                    3
+                else
+                    2
+
+            Assert.Equal(expectedLine, violation.Location.StartLine)
+
+    [<Fact>]
+    let ``Array.set is observed mutation for GlobalVariable`` () =
+        let cases =
+            [ "module Mod\nlet table = [| 1; 2; 3 |]\nlet setFirst () = Array.set table 0 9\n"
+              "module Mod\nlet table = [| 1; 2; 3 |]\nlet setFirst () = Array.set 0 9 table\n" ]
+
+        for source in cases do
+            let analyzed = analyzeSource source
+            let rule = Rules.all |> List.find (fun r -> r.Name = "GlobalVariable")
+            let violations = rule.Check analyzed (Map.empty)
+
+            let violation = Assert.Single violations
+            Assert.Equal(2, violation.Location.StartLine)
+
+    [<Fact>]
+    let ``read-only collection and index uses stay quiet for GlobalVariable`` () =
+        let cases =
+            [ "module Mod\nlet store = ResizeArray<int>()\nlet count () = store.Count\n"
+              "module Mod\nlet table = [| 1; 2; 3 |]\nlet read () = table.[0]\n"
+              "module Mod\nlet table = [| 1; 2; 3 |]\nlet read () = table[0]\n"
+              "module Mod\nopen System.Collections.Generic\nlet store = Dictionary<string, int>()\nlet read () = store.[\"k\"]\n"
+              "module Mod\nopen System.Collections.Generic\nlet store = Dictionary<string, int>()\nlet read () =\n    let mutable value = 0\n    store.TryGetValue(\"k\", &value) |> ignore\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet methodValue () = store.Add\n" ]
+
+        for source in cases do
+            let analyzed = analyzeSource source
+            let rule = Rules.all |> List.find (fun r -> r.Name = "GlobalVariable")
+            let violations = rule.Check analyzed (Map.empty)
+
+            Assert.Empty violations
+
+    [<Fact>]
+    let ``shadowed collection mutation does not report the module-level GlobalVariable`` () =
+        let sources =
+            [ "module Mod\nlet table = [| 1; 2; 3 |]\nlet change () =\n    let table = [| 0 |]\n    table.[0] <- 9\n\nlet read () = 1\n"
+              "module Mod\nlet store = ResizeArray<int>()\nlet change () =\n    let store = ResizeArray<int>()\n    store.Add(1)\n" ]
+
+        for source in sources do
+            let analyzed = analyzeSource source
+            let rule = Rules.all |> List.find (fun r -> r.Name = "GlobalVariable")
+            let violations = rule.Check analyzed (Map.empty)
+
+            Assert.Empty violations
+
+    [<Fact>]
     let ``npath measures alternatives rather than exponentiating cyclomatic complexity`` () =
         let result =
             Engine.run "0.1.0" (options [ fixture "branching.fs" ] [ fixture "npath-ruleset.xml" ] Json)
