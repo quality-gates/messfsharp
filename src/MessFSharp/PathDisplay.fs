@@ -35,7 +35,8 @@ module PathDisplay =
         [ FileInfo(path) :> FileSystemInfo; DirectoryInfo(path) :> FileSystemInfo ]
         |> List.tryPick tryResolve
 
-    let private resolvePhysicalPath (path: string) =
+    /// Return the physical path for one file or directory. Symlink aliases resolve to the same physical path.
+    let resolvePhysicalPath (path: string) =
         let fullPath = normalizedPath path
         let root = Path.GetPathRoot(fullPath)
 
