@@ -209,6 +209,27 @@ module Rules =
             startLine, declaration.Location.StartLine)
         |> List.tryHead
 
+    let private mutatingCollectionMethods =
+        set
+            [ "Add"
+              "AddFirst"
+              "AddRange"
+              "Remove"
+              "RemoveAt"
+              "RemoveAll"
+              "Clear"
+              "Insert"
+              "Push"
+              "Pop"
+              "Enqueue"
+              "Dequeue"
+              "TryAdd"
+              "TryRemove"
+              "Append"
+              "AppendLine"
+              "Sort"
+              "Reverse" ]
+
     let private mutationObserved (file: AnalyzedFile) (declaration: Declaration) =
         let startLine, endLine = mutationScope file declaration
 
@@ -216,6 +237,80 @@ module Rules =
             index >= 0
             && index < file.Tokens.Length
             && (file.Tokens[index].Text = "incr" || file.Tokens[index].Text = "decr")
+
+        let tokenAt index =
+            if index >= 0 && index < file.Tokens.Length then
+                Some(file.Tokens[index])
+            else
+                None
+
+        let indexerAssignment index =
+            let openBracket =
+                match tokenAt (index + 1), tokenAt (index + 2) with
+                | Some dot, Some bracket when dot.Text = "." && bracket.Text = "[" -> Some(index + 2)
+                | Some bracket, _ when bracket.Text = "[" -> Some(index + 1)
+                | _ -> None
+
+            match openBracket with
+            | None -> false
+            | Some openIndex ->
+                let rec scan cursor depth =
+                    if cursor >= file.Tokens.Length then
+                        false
+                    elif depth = 0 then
+                        (match tokenAt cursor with
+                         | Some token -> token.Text = "<-"
+                         | None -> false)
+                    elif file.Tokens[cursor].Text = "[" then
+                        scan (cursor + 1) (depth + 1)
+                    elif file.Tokens[cursor].Text = "]" then
+                        scan (cursor + 1) (depth - 1)
+                    else
+                        scan (cursor + 1) depth
+
+                scan (openIndex + 1) 1
+
+        let mutatingMethodCall index =
+            match tokenAt (index + 1), tokenAt (index + 2), tokenAt (index + 3) with
+            | Some dot, Some method, Some next when
+                dot.Text = "."
+                && Set.contains method.Text mutatingCollectionMethods
+                && (next.Text = "("
+                    || next.Text = "<"
+                    || (next.Line = method.Line
+                        && (next.Kind = Identifier
+                            || next.Kind = Number
+                            || next.Kind = StringLiteral
+                            || next.Kind = CharacterLiteral
+                            || next.Text = "["
+                            || next.Text = "{"
+                            || next.Text = "-")))
+                ->
+                true
+            | _ -> false
+
+        let arraySetTarget index =
+            let isBarrier (token: SyntaxToken) =
+                token.Text = ";"
+                || token.Text = "="
+                || (token.Kind = Keyword && (token.Text = "let" || token.Text = "member"))
+
+            let rec loop cursor =
+                if cursor < 0 || index - cursor > 16 then
+                    false
+                elif isBarrier file.Tokens[cursor] then
+                    false
+                elif
+                    cursor >= 2
+                    && file.Tokens[cursor].Text = "set"
+                    && file.Tokens[cursor - 1].Text = "."
+                    && file.Tokens[cursor - 2].Text = "Array"
+                then
+                    true
+                else
+                    loop (cursor - 1)
+
+            loop (index - 1)
 
         file.Tokens
         |> Array.mapi (fun index token -> index, token)
@@ -238,7 +333,10 @@ module Rules =
                 || (index + 3 < file.Tokens.Length
                     && file.Tokens[index + 1].Text = "."
                     && file.Tokens[index + 2].Text = "Value"
-                    && file.Tokens[index + 3].Text = "<-")))
+                    && file.Tokens[index + 3].Text = "<-")
+                || indexerAssignment index
+                || mutatingMethodCall index
+                || arraySetTarget index))
 
     let private lineIndent (line: string) =
         line
